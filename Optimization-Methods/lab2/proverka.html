@@ -1,0 +1,979 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>1 Лаб - Метод наискорейшего спуска</title>
+    <script
+      type="text/javascript"
+      src="https://www.gstatic.com/charts/loader.js"
+    ></script>
+    <style>
+      .main > div {
+        margin-bottom: 20px;
+      }
+    </style>
+
+    <script type="text/javascript">
+      // Функция для моделирования системы с заданными параметрами PID
+      function simulateSystem(
+        q1,
+        q2,
+        q3,
+        T1 = 1,
+        k11 = 1,
+        e = 0.75,
+        g = 1,
+        dt = 0.01,
+        L = 15,
+      ) {
+        let y = 0;
+        let t_ = 0;
+        let z11 = 0,
+          z21 = 0;
+        let x = 0;
+        let sumx = 0;
+        let xpr = 0;
+        let times = [];
+        let y_values = [];
+        let y_et_values = [];
+
+        // Параметры эталонной модели
+        let T_ref = 0.6,
+          k_ref = 1;
+        let y_ref_prev = 0;
+
+        // Запаздывание
+        let delaySteps = Math.max(1, Math.round(0.1 / dt));
+        let historyY = new Array(delaySteps).fill(0);
+
+        while (t_ <= L) {
+          xpr = x;
+          x = g - y;
+
+          // Достаём задержанное значение выхода объекта
+          let y_delayed = historyY.shift();
+          historyY.push(z11);
+
+          let u = q1 * x;
+          sumx = sumx + x * dt;
+          let u_i = q2 * sumx;
+          let dx = (x - xpr) / dt;
+          let u_d = q3 * dx;
+          u = u + u_i + u_d;
+
+          // ОУ с ПИД
+          let y1 = z11;
+          let k1 = (z21 - ((2 * e) / T1) * y1) * dt;
+          let m1 = ((k11 / T1 ** 2) * u - (1 / T1 ** 2) * y1) * dt;
+          let k2 = (z21 + m1 / 2 - ((2 * e) / T1) * (y1 + k1 / 2)) * dt;
+          let m2 = ((k11 / T1 ** 2) * u - (1 / T1 ** 2) * (y1 + k1 / 2)) * dt;
+          let k3 = (z21 + m2 / 2 - ((2 * e) / T1) * (y1 + k2 / 2)) * dt;
+          let m3 = ((k11 / T1 ** 2) * u - (1 / T1 ** 2) * (y1 + k2 / 2)) * dt;
+          let k4 = (z21 + m3 - ((2 * e) / T1) * (y1 + k3)) * dt;
+          let m4 = ((k11 / T1 ** 2) * u - (1 / T1 ** 2) * (y1 + k3)) * dt;
+          z11 = z11 + (k1 + 2 * k2 + 2 * k3 + k4) / 6;
+          z21 = z21 + (m1 + 2 * m2 + 2 * m3 + m4) / 6;
+
+          // Эталонная модель (Рунге-Кутта 4)
+          var obrat_g = g;
+          var k1_ref = dt * (-(y_ref_prev / T_ref) + (k_ref / T_ref) * obrat_g);
+          var k2_ref =
+            dt *
+            (-(y_ref_prev + k1_ref / 2) / T_ref + (k_ref / T_ref) * obrat_g);
+          var k3_ref =
+            dt *
+            (-(y_ref_prev + k2_ref / 2) / T_ref + (k_ref / T_ref) * obrat_g);
+          var k4_ref =
+            dt * (-(y_ref_prev + k3_ref) / T_ref + (k_ref / T_ref) * obrat_g);
+          var y_ref =
+            y_ref_prev + (1 / 6) * (k1_ref + 2 * k2_ref + 2 * k3_ref + k4_ref);
+          y_ref_prev = y_ref;
+
+          y = z11;
+
+          times.push(t_);
+          y_values.push(y);
+          y_et_values.push(y_ref);
+
+          t_ = t_ + dt;
+        }
+        return { times, y_pid: y_values, y_et: y_et_values };
+      }
+
+      google.charts.load("current", { packages: ["corechart"] });
+      google.charts.setOnLoadCallback(drawChart);
+      function drawChart() {
+        var T1 = 1,
+          k11 = 1;
+        var e = 0.75;
+        var g = 1;
+        var dt = 0.001;
+        var L = 60;
+        var y, y_un, t_, u, q1, q2, q3, sumx, u_i, u_d, xpr, dx;
+        var y1_1, z11_1, z21_1;
+        var i, j, ns, tau;
+        var krit;
+        var ksi1, sum_ksi1, d_ksi1, du_dq1, pr_ksi1;
+        var ksi2, sum_ksi2, d_ksi2, du_dq2, pr_ksi2;
+        var ksi3, sum_ksi3, d_ksi3, du_dq3, pr_ksi3;
+        var z11, z21;
+        tau = 0.1;
+        ns = tau / dt;
+
+        var current_direction_q1 = 0,
+          current_direction_q2 = 0,
+          current_direction_q3 = 0;
+        var direction_min_krit = 0,
+          direction_best_q1 = 0,
+          direction_best_q2 = 0,
+          direction_best_q3 = 0;
+        var steps_in_direction = 0,
+          continue_in_direction = false;
+        var prev_q1 = 0,
+          prev_q2 = 0,
+          prev_q3 = 0;
+        q_arr = [
+          [1, 0, 0],
+          [0.1, 0.01, 7.0],
+          [10.0, 2.0, 0.0],
+        ];
+        var arr_I = new Array(["t", "I_1", "I_2", "I_3"]);
+        var arr_q_all = new Array(["t", "1exp", "2exp", "3exp"]);
+        var arr_ksi_all = new Array(["t", "1exp", "2exp", "3exp"]);
+        var arr_q1 = new Array(["t", "q11", "q12", "q13"]);
+        var arr_q2 = new Array(["t", "q21", "q22", "q23"]);
+        var arr_q3 = new Array(["t", "q31", "q32", "q33"]);
+        max_I_ksi = -10;
+
+        var nonoptimalData = [];
+
+        // Параметры эталонной модели
+        var T_ref = 0.6,
+          k_ref = 1;
+        var y_ref_prev = 0;
+
+        // Запаздывание
+        var delaySteps = Math.max(1, Math.round(tau / dt));
+        var historyY = new Array(delaySteps).fill(0);
+
+        for (let q_arr_i = 0; q_arr_i < q_arr.length; q_arr_i++) {
+          q_arr_part = q_arr[q_arr_i];
+          q1 = q_arr_part[0];
+          q2 = q_arr_part[1];
+          q3 = q_arr_part[2];
+          i_I = q_arr_i + 1;
+          arr_I1_index = 0;
+          arr_I2_index = 0;
+          arr_I3_index = 0;
+          var arr_ksi_optimal = new Array(["t", "ksi1", "ksi2", "ksi3"]);
+          var arr_ksi_unoptimal = new Array([
+            "t",
+            "ksi1_unoptimal",
+            "ksi2_unoptimal",
+            "ksi3_unoptimal",
+          ]);
+          var arr_dI_dq = new Array(["t", "dI_dq1", "dI_dq2", "dI_dq3"]);
+
+          var arr_dI2_dq = new Array([]);
+          var arr_dI3_dq = new Array([]);
+          var arr_model_optimum = new Array([
+            "t",
+            "h(t)",
+            "g(t)",
+            "эталонная модель",
+          ]);
+          var arr_model_unoptimum = new Array(["t", "h(t)", "g(t)"]);
+          var arr_q = new Array(["t", "q1", "q2", "q3"]);
+          var mas = new Array(["y"]);
+          var mas_un = new Array(["y"]);
+          var mas_ksi1 = new Array(["ksi1"]);
+          var mas_ksi2 = new Array(["ksi2"]);
+          var mas_ksi3 = new Array(["ksi3"]);
+          var mas_ksi1_un = new Array(["ksi1_unoptimal"]);
+          var mas_ksi2_un = new Array(["ksi2_unoptimal"]);
+          var mas_ksi3_un = new Array(["ksi3_unoptimal"]);
+          var Iter = 0;
+          var dI_dq1, dI_dq2, dI_dq3;
+          var sumI = 1;
+          var h = 0.3;
+          var pr_krit = 0;
+          krit = 0;
+          var dI_dq1_prev,
+            dI_dq2_prev,
+            dI_dq3_prev = 0;
+          gradSum = 0;
+
+          current_direction_q1 = 0;
+          current_direction_q2 = 0;
+          current_direction_q3 = 0;
+          direction_min_krit = 0;
+          direction_best_q1 = 0;
+          direction_best_q2 = 0;
+          direction_best_q3 = 0;
+          steps_in_direction = 0;
+          continue_in_direction = false;
+
+          var simResult = simulateSystem(q1, q2, q3, T1, k11, e, g, dt, L);
+          nonoptimalData.push({
+            q1: q1,
+            q2: q2,
+            q3: q3,
+            times: simResult.times,
+            y_pid: simResult.y_pid,
+            label: `Набор ${q_arr_i + 1}: q1=${q1}, q2=${q2}, q3=${q3}`,
+          });
+
+          while (Iter < 150 && sumI > 0.0001) {
+            Iter++;
+            i = 0;
+            j = 0;
+            t_ = 0;
+            ((x = 0), (x_un = 0));
+            y = 0;
+            y1 = 0;
+            y_un1 = 0;
+            y_un = 0;
+            ((dI_dq1 = 0), (dI_dq2 = 0), (dI_dq3 = 0));
+            sumx = 0;
+            sumx_un = 0;
+            pr_krit = krit;
+            krit = 0;
+            ((z11 = 0), (z21 = 0));
+            ((z11_un = 0), (z21_un = 0));
+            ((y1_1 = 0), (z11_1 = 0), (z21_1 = 0));
+            ksi1 = 0;
+            sum_ksi1 = 0;
+            pr_ksi1 = 0;
+            ((y1_1_un = 0), (z11_1_un = 0), (z21_1_un = 0));
+            ksi1_un = 0;
+            sum_ksi1_un = 0;
+            pr_ksi1_un = 0;
+            ((y1_2 = 0), (z11_2 = 0), (z21_2 = 0));
+            ksi2 = 0;
+            sum_ksi2 = 0;
+            pr_ksi2 = 0;
+            ((y1_2_un = 0), (z11_2_un = 0), (z21_2_un = 0));
+            ksi2_un = 0;
+            sum_ksi2_un = 0;
+            pr_ksi2_un = 0;
+            ((y1_3 = 0), (z11_3 = 0), (z21_3 = 0));
+            ksi3 = 0;
+            sum_ksi3 = 0;
+            pr_ksi3 = 0;
+            ((y1_3_un = 0), (z11_3_un = 0), (z21_3_un = 0));
+            ksi3_un = 0;
+            sum_ksi3_un = 0;
+            pr_ksi3_un = 0;
+
+            // Сброс эталонной модели и истории для новой итерации
+            y_ref_prev = 0;
+            historyY = new Array(delaySteps).fill(0);
+
+            while (t_ <= L) {
+              xpr = x;
+              x = g - y;
+              xpr_un = x_un;
+              x_un = g - y_un;
+
+              // Достаём задержанное значение выхода объекта
+              var y_delayed = historyY.shift();
+              historyY.push(z11);
+
+              y1 = z11;
+
+              // Эталонная модель (Рунге-Кутта 4)
+              var obrat_g = g;
+              var k1_ref =
+                dt * (-(y_ref_prev / T_ref) + (k_ref / T_ref) * obrat_g);
+              var k2_ref =
+                dt *
+                (-(y_ref_prev + k1_ref / 2) / T_ref +
+                  (k_ref / T_ref) * obrat_g);
+              var k3_ref =
+                dt *
+                (-(y_ref_prev + k2_ref / 2) / T_ref +
+                  (k_ref / T_ref) * obrat_g);
+              var k4_ref =
+                dt *
+                (-(y_ref_prev + k3_ref) / T_ref + (k_ref / T_ref) * obrat_g);
+              var y_ref =
+                y_ref_prev +
+                (1 / 6) * (k1_ref + 2 * k2_ref + 2 * k3_ref + k4_ref);
+              y_ref_prev = y_ref;
+
+              // Разница с эталоном (ошибка)
+              var diff = y_delayed - y_ref;
+
+              // Функционал I (критерий)
+              krit = krit + diff * diff * dt;
+
+              u = q1 * x;
+              sumx = sumx + x * dt;
+              u_i = q2 * sumx;
+              dx = (x - xpr) / dt;
+              u_d = q3 * dx;
+              u = u + u_i + u_d;
+              sumx_un = sumx_un + x_un * dt;
+              dx_un = (x_un - xpr_un) / dt;
+
+              sum_ksi1 += ksi1 * dt;
+              d_ksi1 = (ksi1 - pr_ksi1) / dt;
+              du_dq1 = x - q1 * ksi1 - q2 * sum_ksi1 - q3 * d_ksi1;
+              sum_ksi1_un += ksi1_un * dt;
+              d_ksi1_un = (ksi1_un - pr_ksi1_un) / dt;
+              du_dq1_un = x_un;
+
+              sum_ksi2 += ksi2 * dt;
+              d_ksi2 = (ksi2 - pr_ksi2) / dt;
+              du_dq2 = sumx - q1 * ksi2 - q2 * sum_ksi2 - q3 * d_ksi2;
+              sum_ksi2_un += ksi2_un * dt;
+              d_ksi2_un = (ksi2_un - pr_ksi2_un) / dt;
+              du_dq2_un = sumx_un;
+
+              sum_ksi3 += ksi3 * dt;
+              d_ksi3 = (ksi3 - pr_ksi3) / dt;
+              du_dq3 = dx - q1 * ksi3 - q2 * sum_ksi3 - q3 * d_ksi3;
+              sum_ksi3_un += ksi3_un * dt;
+              d_ksi3_un = (ksi3_un - pr_ksi3_un) / dt;
+              du_dq3_un = dx_un;
+
+              // ОУ с ПИД
+              k1 = (z21 - ((2 * e) / T1) * y1) * dt;
+              m1 = ((k11 / T1 ** 2) * u - (1 / T1 ** 2) * y1) * dt;
+              k2 = (z21 + m1 / 2 - ((2 * e) / T1) * (y1 + k1 / 2)) * dt;
+              m2 = ((k11 / T1 ** 2) * u - (1 / T1 ** 2) * (y1 + k1 / 2)) * dt;
+              k3 = (z21 + m2 / 2 - ((2 * e) / T1) * (y1 + k2 / 2)) * dt;
+              m3 = ((k11 / T1 ** 2) * u - (1 / T1 ** 2) * (y1 + k2 / 2)) * dt;
+              k4 = (z21 + m3 - ((2 * e) / T1) * (y1 + k3)) * dt;
+              m4 = ((k11 / T1 ** 2) * u - (1 / T1 ** 2) * (y1 + k3)) * dt;
+              z11 = z11 + (k1 + 2 * k2 + 2 * k3 + k4) / 6;
+              z21 = z21 + (m1 + 2 * m2 + 2 * m3 + m4) / 6;
+
+              // ОУ без ПИД
+              y_un1 = z11_un;
+              k1 = (z21_un - ((2 * e) / T1) * y_un1) * dt;
+              m1 = ((k11 / T1 ** 2) * x_un - (1 / T1 ** 2) * y_un1) * dt;
+              k2 = (z21_un + m1 / 2 - ((2 * e) / T1) * (y_un1 + k1 / 2)) * dt;
+              m2 =
+                ((k11 / T1 ** 2) * x_un - (1 / T1 ** 2) * (y_un1 + k1 / 2)) *
+                dt;
+              k3 = (z21_un + m2 / 2 - ((2 * e) / T1) * (y_un1 + k2 / 2)) * dt;
+              m3 =
+                ((k11 / T1 ** 2) * x_un - (1 / T1 ** 2) * (y_un1 + k2 / 2)) *
+                dt;
+              k4 = (z21_un + m3 - ((2 * e) / T1) * (y_un1 + k3)) * dt;
+              m4 = ((k11 / T1 ** 2) * x_un - (1 / T1 ** 2) * (y_un1 + k3)) * dt;
+              z11_un = z11_un + (k1 + 2 * k2 + 2 * k3 + k4) / 6;
+              z21_un = z21_un + (m1 + 2 * m2 + 2 * m3 + m4) / 6;
+
+              // ksi1
+              y1_1 = z11_1;
+              k1 = (z21_1 - ((2 * e) / T1) * y1_1) * dt;
+              m1 = ((k11 / T1 ** 2) * du_dq1 - (1 / T1 ** 2) * y1_1) * dt;
+              k2 = (z21_1 + m1 / 2 - ((2 * e) / T1) * (y1_1 + k1 / 2)) * dt;
+              m2 =
+                ((k11 / T1 ** 2) * du_dq1 - (1 / T1 ** 2) * (y1_1 + k1 / 2)) *
+                dt;
+              k3 = (z21_1 + m2 / 2 - ((2 * e) / T1) * (y1_1 + k2 / 2)) * dt;
+              m3 =
+                ((k11 / T1 ** 2) * du_dq1 - (1 / T1 ** 2) * (y1_1 + k2 / 2)) *
+                dt;
+              k4 = (z21_1 + m3 - ((2 * e) / T1) * (y1_1 + k3)) * dt;
+              m4 =
+                ((k11 / T1 ** 2) * du_dq1 - (1 / T1 ** 2) * (y1_1 + k3)) * dt;
+              z11_1 = z11_1 + (k1 + 2 * k2 + 2 * k3 + k4) / 6;
+              z21_1 = z21_1 + (m1 + 2 * m2 + 2 * m3 + m4) / 6;
+              pr_ksi1 = ksi1;
+
+              y1_1_un = z11_1_un;
+              k1 = (z21_1_un - ((2 * e) / T1) * y1_1_un) * dt;
+              m1 = ((k11 / T1 ** 2) * du_dq1_un - (1 / T1 ** 2) * y1_1_un) * dt;
+              k2 =
+                (z21_1_un + m1 / 2 - ((2 * e) / T1) * (y1_1_un + k1 / 2)) * dt;
+              m2 =
+                ((k11 / T1 ** 2) * du_dq1_un -
+                  (1 / T1 ** 2) * (y1_1_un + k1 / 2)) *
+                dt;
+              k3 =
+                (z21_1_un + m2 / 2 - ((2 * e) / T1) * (y1_1_un + k2 / 2)) * dt;
+              m3 =
+                ((k11 / T1 ** 2) * du_dq1_un -
+                  (1 / T1 ** 2) * (y1_1_un + k2 / 2)) *
+                dt;
+              k4 = (z21_1_un + m3 - ((2 * e) / T1) * (y1_1_un + k3)) * dt;
+              m4 =
+                ((k11 / T1 ** 2) * du_dq1_un - (1 / T1 ** 2) * (y1_1_un + k3)) *
+                dt;
+              z11_1_un = z11_1_un + (k1 + 2 * k2 + 2 * k3 + k4) / 6;
+              z21_1_un = z21_1_un + (m1 + 2 * m2 + 2 * m3 + m4) / 6;
+              pr_ksi1_un = ksi1_un;
+
+              // ksi2
+              y1_2 = z11_2;
+              k1 = (z21_2 - ((2 * e) / T1) * y1_2) * dt;
+              m1 = ((k11 / T1 ** 2) * du_dq2 - (1 / T1 ** 2) * y1_2) * dt;
+              k2 = (z21_2 + m1 / 2 - ((2 * e) / T1) * (y1_2 + k1 / 2)) * dt;
+              m2 =
+                ((k11 / T1 ** 2) * du_dq2 - (1 / T1 ** 2) * (y1_2 + k1 / 2)) *
+                dt;
+              k3 = (z21_2 + m2 / 2 - ((2 * e) / T1) * (y1_2 + k2 / 2)) * dt;
+              m3 =
+                ((k11 / T1 ** 2) * du_dq2 - (1 / T1 ** 2) * (y1_2 + k2 / 2)) *
+                dt;
+              k4 = (z21_2 + m3 - ((2 * e) / T1) * (y1_2 + k3)) * dt;
+              m4 =
+                ((k11 / T1 ** 2) * du_dq2 - (1 / T1 ** 2) * (y1_2 + k3)) * dt;
+              z11_2 = z11_2 + (k1 + 2 * k2 + 2 * k3 + k4) / 6;
+              z21_2 = z21_2 + (m1 + 2 * m2 + 2 * m3 + m4) / 6;
+              pr_ksi2 = ksi2;
+
+              y1_2_un = z11_2_un;
+              k1 = (z21_2_un - ((2 * e) / T1) * y1_2_un) * dt;
+              m1 = ((k11 / T1 ** 2) * du_dq2_un - (1 / T1 ** 2) * y1_2_un) * dt;
+              k2 =
+                (z21_2_un + m1 / 2 - ((2 * e) / T1) * (y1_2_un + k1 / 2)) * dt;
+              m2 =
+                ((k11 / T1 ** 2) * du_dq2_un -
+                  (1 / T1 ** 2) * (y1_2_un + k1 / 2)) *
+                dt;
+              k3 =
+                (z21_2_un + m2 / 2 - ((2 * e) / T1) * (y1_2_un + k2 / 2)) * dt;
+              m3 =
+                ((k11 / T1 ** 2) * du_dq2_un -
+                  (1 / T1 ** 2) * (y1_2_un + k2 / 2)) *
+                dt;
+              k4 = (z21_2_un + m3 - ((2 * e) / T1) * (y1_2_un + k3)) * dt;
+              m4 =
+                ((k11 / T1 ** 2) * du_dq2_un - (1 / T1 ** 2) * (y1_2_un + k3)) *
+                dt;
+              z11_2_un = z11_2_un + (k1 + 2 * k2 + 2 * k3 + k4) / 6;
+              z21_2_un = z21_2_un + (m1 + 2 * m2 + 2 * m3 + m4) / 6;
+              pr_ksi2_un = ksi2_un;
+
+              // ksi3
+              y1_3 = z11_3;
+              k1 = (z21_3 - ((2 * e) / T1) * y1_3) * dt;
+              m1 = ((k11 / T1 ** 2) * du_dq3 - (1 / T1 ** 2) * y1_3) * dt;
+              k2 = (z21_3 + m1 / 2 - ((2 * e) / T1) * (y1_3 + k1 / 2)) * dt;
+              m2 =
+                ((k11 / T1 ** 2) * du_dq3 - (1 / T1 ** 2) * (y1_3 + k1 / 2)) *
+                dt;
+              k3 = (z21_3 + m2 / 2 - ((2 * e) / T1) * (y1_3 + k2 / 2)) * dt;
+              m3 =
+                ((k11 / T1 ** 2) * du_dq3 - (1 / T1 ** 2) * (y1_3 + k2 / 2)) *
+                dt;
+              k4 = (z21_3 + m3 - ((2 * e) / T1) * (y1_3 + k3)) * dt;
+              m4 =
+                ((k11 / T1 ** 2) * du_dq3 - (1 / T1 ** 2) * (y1_3 + k3)) * dt;
+              z11_3 = z11_3 + (k1 + 2 * k2 + 2 * k3 + k4) / 6;
+              z21_3 = z21_3 + (m1 + 2 * m2 + 2 * m3 + m4) / 6;
+              pr_ksi3 = ksi3;
+
+              y1_3_un = z11_3_un;
+              k1 = (z21_3_un - ((2 * e) / T1) * y1_3_un) * dt;
+              m1 = ((k11 / T1 ** 2) * du_dq3_un - (1 / T1 ** 2) * y1_3_un) * dt;
+              k2 =
+                (z21_3_un + m1 / 2 - ((2 * e) / T1) * (y1_3_un + k1 / 2)) * dt;
+              m2 =
+                ((k11 / T1 ** 2) * du_dq3_un -
+                  (1 / T1 ** 2) * (y1_3_un + k1 / 2)) *
+                dt;
+              k3 =
+                (z21_3_un + m2 / 2 - ((2 * e) / T1) * (y1_3_un + k2 / 2)) * dt;
+              m3 =
+                ((k11 / T1 ** 2) * du_dq3_un -
+                  (1 / T1 ** 2) * (y1_3_un + k2 / 2)) *
+                dt;
+              k4 = (z21_3_un + m3 - ((2 * e) / T1) * (y1_3_un + k3)) * dt;
+              m4 =
+                ((k11 / T1 ** 2) * du_dq3_un - (1 / T1 ** 2) * (y1_3_un + k3)) *
+                dt;
+              z11_3_un = z11_3_un + (k1 + 2 * k2 + 2 * k3 + k4) / 6;
+              z21_3_un = z21_3_un + (m1 + 2 * m2 + 2 * m3 + m4) / 6;
+              pr_ksi3_un = ksi3_un;
+
+              i++;
+              if (i > ns) {
+                if (j >= ns) j = 0;
+                j = j + 1;
+                y = mas[j];
+                mas[j] = y1;
+                y_un = mas_un[j];
+                mas_un[j] = y_un1;
+                ksi1 = mas_ksi1[j];
+                mas_ksi1[j] = y1_1;
+                ksi2 = mas_ksi2[j];
+                mas_ksi2[j] = y1_2;
+                ksi3 = mas_ksi3[j];
+                mas_ksi3[j] = y1_3;
+                ksi1_un = mas_ksi1_un[j];
+                mas_ksi1_un[j] = y1_1_un;
+                ksi2_un = mas_ksi2_un[j];
+                mas_ksi2_un[j] = y1_2_un;
+                ksi3_un = mas_ksi3_un[j];
+                mas_ksi3_un[j] = y1_3_un;
+              } else {
+                mas[i] = y1;
+                y = 0;
+                mas_un[i] = y_un1;
+                y_un = 0;
+                mas_ksi1[i] = y1_1;
+                ksi1 = 0;
+                mas_ksi2[i] = y1_2;
+                ksi2 = 0;
+                mas_ksi3[i] = y1_3;
+                ksi3 = 0;
+                mas_ksi1_un[i] = y1_1_un;
+                ksi1_un = 0;
+                mas_ksi2_un[i] = y1_2_un;
+                ksi2_un = 0;
+                mas_ksi3_un[i] = y1_3_un;
+                ksi3_un = 0;
+              }
+
+              if (continue_in_direction === false) {
+                // Градиент через производную функционала I по параметрам
+                // dI/dqj = 2 * ∫ (y - y_эт) * ξj dt = 2 * ∫ diff * ξj dt
+                dI_dq1 += 2 * diff * ksi1 * dt;
+                dI_dq2 += 2 * diff * ksi2 * dt;
+                dI_dq3 += 2 * diff * ksi3 * dt;
+              } else {
+                dI_dq1 = dI_dq1_prev;
+                dI_dq2 = dI_dq2_prev;
+                dI_dq3 = dI_dq3_prev;
+              }
+              dI_dq1_prev = dI_dq1;
+              dI_dq2_prev = dI_dq2;
+              dI_dq3_prev = dI_dq3;
+
+              if (t_ <= 10) {
+                arr_model_optimum[i] = [t_, y, 1, y_ref];
+                arr_model_unoptimum[i] = [t_, y_un, 1];
+              }
+              arr_ksi_optimal[i] = [t_, ksi1, ksi2, ksi3];
+              arr_ksi_unoptimal[i] = [t_, ksi1_un, ksi2_un, ksi3_un];
+              t_ = t_ + dt;
+            }
+
+            sumI = dI_dq1 * dI_dq1 + dI_dq2 * dI_dq2 + dI_dq3 * dI_dq3;
+            gradSum = Math.sqrt(
+              dI_dq1 * dI_dq1 + dI_dq2 * dI_dq2 + dI_dq3 * dI_dq3,
+            );
+            console.log("sumI=", sumI);
+
+            // МЕТОД НАИСКОРЕЙШЕГО СПУСКА
+            if (gradSum < 0.0001) {
+              break;
+            }
+
+            if (Iter === 1) {
+              current_direction_q1 = -dI_dq1 / gradSum;
+              current_direction_q2 = -dI_dq2 / gradSum;
+              current_direction_q3 = -dI_dq3 / gradSum;
+
+              q1 = q1 + h * current_direction_q1;
+              q2 = q2 + h * current_direction_q2;
+              q3 = q3 + h * current_direction_q3;
+
+              direction_min_krit = krit;
+              direction_best_q1 = q1;
+              direction_best_q2 = q2;
+              direction_best_q3 = q3;
+              steps_in_direction = 1;
+              continue_in_direction = true;
+            } else {
+              if (continue_in_direction) {
+                if (krit < direction_min_krit) {
+                  direction_min_krit = krit;
+                  direction_best_q1 = q1;
+                  direction_best_q2 = q2;
+                  direction_best_q3 = q3;
+
+                  q1 = q1 + h * current_direction_q1;
+                  q2 = q2 + h * current_direction_q2;
+                  q3 = q3 + h * current_direction_q3;
+                  steps_in_direction++;
+                } else {
+                  q1 = direction_best_q1;
+                  q2 = direction_best_q2;
+                  q3 = direction_best_q3;
+                  krit = direction_min_krit;
+
+                  continue_in_direction = false;
+                  Iter--;
+
+                  if (steps_in_direction > 1) {
+                    h *= 1.2;
+                  } else {
+                    h /= 2;
+                  }
+
+                  arr_q[Iter] = [Iter, q1, q2, q3];
+                  arr_dI_dq[Iter] = [Iter, dI_dq1, dI_dq2, dI_dq3];
+
+                  if (q_arr_i == 0) {
+                    arr_I[Iter] = [Iter, krit, 0, 0];
+                    arr_I1_index = Iter;
+                  } else {
+                    if (Iter < arr_I.length) {
+                      arr_I[Iter][i_I] = krit;
+                    } else {
+                      if (q_arr_i == 1) {
+                        arr_I[Iter] = [Iter, 0, krit, 0];
+                      } else {
+                        arr_I[Iter] = [Iter, 0, 0, krit];
+                      }
+                    }
+                  }
+
+                  continue;
+                }
+              } else {
+                current_direction_q1 = -dI_dq1 / gradSum;
+                current_direction_q2 = -dI_dq2 / gradSum;
+                current_direction_q3 = -dI_dq3 / gradSum;
+
+                q1 = q1 + h * current_direction_q1;
+                q2 = q2 + h * current_direction_q2;
+                q3 = q3 + h * current_direction_q3;
+
+                direction_min_krit = krit;
+                direction_best_q1 = q1;
+                direction_best_q2 = q2;
+                direction_best_q3 = q3;
+                steps_in_direction = 1;
+                continue_in_direction = true;
+              }
+            }
+
+            arr_q[Iter] = [Iter, q1, q2, q3];
+            arr_dI_dq[Iter] = [Iter, dI_dq1, dI_dq2, dI_dq3];
+
+            if (q_arr_i == 0) {
+              arr_I[Iter] = [Iter, krit, 0, 0];
+              arr_I1_index = Iter;
+            } else {
+              if (Iter < arr_I.length) {
+                arr_I[Iter][i_I] = krit;
+              } else {
+                if (q_arr_i == 1) {
+                  arr_I[Iter] = [Iter, 0, krit, 0];
+                } else {
+                  arr_I[Iter] = [Iter, 0, 0, krit];
+                }
+              }
+            }
+          }
+
+          arr_q_all.push(arr_q);
+          arr_ksi_all.push(arr_ksi_optimal);
+          if (q_arr_i == 0) {
+            data_arr_dI_dq1 = google.visualization.arrayToDataTable(arr_dI_dq);
+          } else if (q_arr_i == 1) {
+            data_arr_dI_dq2 = google.visualization.arrayToDataTable(arr_dI_dq);
+          } else {
+            data_arr_dI_dq3 = google.visualization.arrayToDataTable(arr_dI_dq);
+          }
+          if (krit > max_I_ksi) {
+            max_I_ksi = krit;
+            index_record_ksi = q_arr_i;
+          }
+
+          console.log(
+            "Для",
+            q_arr_i + 1,
+            "эксперимента.",
+            "krit=",
+            krit,
+            "q1=",
+            q1,
+            "q2=",
+            q2,
+            "q3=",
+            q3,
+          );
+          console.log(
+            "Для",
+            q_arr_i + 1,
+            "эксперимента.",
+            "Количество итераций равно",
+            Iter,
+          );
+        }
+
+        console.log("max_I_ksi= ", max_I_ksi);
+        console.log("index_record_ksi= ", index_record_ksi);
+
+        for (
+          let i = 1;
+          i <
+          Math.max(
+            arr_q_all[1].length,
+            arr_q_all[2].length,
+            arr_q_all[3].length,
+          );
+          i++
+        ) {
+          arr_q1[i] = [i, 0, 0, 0];
+          arr_q2[i] = [i, 0, 0, 0];
+          arr_q3[i] = [i, 0, 0, 0];
+        }
+        for (
+          let i = 1;
+          i <
+          Math.max(
+            arr_q_all[1].length,
+            arr_q_all[2].length,
+            arr_q_all[3].length,
+          );
+          i++
+        ) {
+          if (i + 1 >= arr_q_all[1].length) {
+            k = arr_q_all[1].length - 1;
+          } else k = i;
+          arr_q1[i][1] = arr_q_all[1][k][1];
+          arr_q2[i][1] = arr_q_all[1][k][2];
+          arr_q3[i][1] = arr_q_all[1][k][3];
+        }
+        for (
+          let i = 1;
+          i <
+          Math.max(
+            arr_q_all[1].length,
+            arr_q_all[2].length,
+            arr_q_all[3].length,
+          );
+          i++
+        ) {
+          if (i + 1 >= arr_q_all[2].length) {
+            k = arr_q_all[2].length - 1;
+          } else k = i;
+          arr_q1[i][2] = arr_q_all[2][k][1];
+          arr_q2[i][2] = arr_q_all[2][k][2];
+          arr_q3[i][2] = arr_q_all[2][k][3];
+        }
+        for (
+          let i = 1;
+          i <
+          Math.max(
+            arr_q_all[1].length,
+            arr_q_all[2].length,
+            arr_q_all[3].length,
+          );
+          i++
+        ) {
+          if (i + 1 >= arr_q_all[3].length) {
+            k = arr_q_all[3].length - 1;
+          } else k = i;
+          arr_q1[i][3] = arr_q_all[3][k][1];
+          arr_q2[i][3] = arr_q_all[3][k][2];
+          arr_q3[i][3] = arr_q_all[3][k][3];
+        }
+
+        // ========== ГРАФИК НЕОПТИМАЛЬНЫХ ПЕРЕХОДНЫХ ПРОЦЕССОВ ==========
+        var nonoptimalChartData = new google.visualization.DataTable();
+        nonoptimalChartData.addColumn("number", "t");
+        for (let i = 0; i < nonoptimalData.length; i++) {
+          nonoptimalChartData.addColumn("number", nonoptimalData[i].label);
+        }
+
+        var maxLen = Math.max(...nonoptimalData.map((d) => d.times.length));
+        for (let idx = 0; idx < maxLen; idx++) {
+          var row = [nonoptimalData[0].times[idx] || idx * dt];
+          for (let i = 0; i < nonoptimalData.length; i++) {
+            row.push(
+              nonoptimalData[i].y_pid[idx] !== undefined
+                ? nonoptimalData[i].y_pid[idx]
+                : null,
+            );
+          }
+          nonoptimalChartData.addRow(row);
+        }
+
+        var options_nonoptimal = {
+          title:
+            "Неоптимальные графики переходных процессов (с ПИД-регулятором, начальные параметры из q_arr)",
+          curveType: "function",
+          hAxis: { title: "t (время)" },
+          vAxis: { title: "h(t) - выход системы" },
+          legend: { position: "bottom" },
+          colors: ["#FF6B6B", "#4ECDC4", "#45B7D1"],
+        };
+        var chart_nonoptimal = new google.visualization.LineChart(
+          document.getElementById("nonoptimal_transients"),
+        );
+        chart_nonoptimal.draw(nonoptimalChartData, options_nonoptimal);
+
+        var data_arr_model_unoptimum =
+          google.visualization.arrayToDataTable(arr_model_unoptimum);
+        var options = {
+          title: "Моделирование без ПИД-регулятора",
+          curveType: "function",
+          hAxis: { title: "t" },
+          vAxis: { title: "h(t)" },
+          legend: { position: "bottom" },
+        };
+        var chart_arr_model_unoptimum = new google.visualization.LineChart(
+          document.getElementById("model_unoptim"),
+        );
+        chart_arr_model_unoptimum.draw(data_arr_model_unoptimum, options);
+
+        var data_arr_model =
+          google.visualization.arrayToDataTable(arr_model_optimum);
+        var options = {
+          title: "Моделирование с ПИД-регулятором (оптимальные параметры)",
+          curveType: "function",
+          hAxis: { title: "t" },
+          vAxis: { title: "h(t)" },
+          legend: { position: "bottom" },
+        };
+        var chart_arr_model = new google.visualization.LineChart(
+          document.getElementById("model_optim"),
+        );
+        chart_arr_model.draw(data_arr_model, options);
+
+        var data_arr_I = google.visualization.arrayToDataTable(arr_I);
+        var options = {
+          title: "Изменения критерия оптимизации по экспериментам",
+          curveType: "none",
+          hAxis: { title: "l" },
+          vAxis: { title: "I" },
+          legend: { position: "bottom" },
+        };
+        var chart_arr_I = new google.visualization.LineChart(
+          document.getElementById("I"),
+        );
+        chart_arr_I.draw(data_arr_I, options);
+
+        var options = {
+          title: "Изменения составляющих градиента при первом эксперименте",
+          curveType: "none",
+          hAxis: { title: "l" },
+          vAxis: { title: "dI_dq" },
+          legend: { position: "bottom" },
+        };
+        var chart_arr_dI_dq1 = new google.visualization.LineChart(
+          document.getElementById("dI_dq1"),
+        );
+        chart_arr_dI_dq1.draw(data_arr_dI_dq1, options);
+
+        var options = {
+          title: "Изменения составляющих градиента при втором эксперименте",
+          curveType: "none",
+          hAxis: { title: "l" },
+          vAxis: { title: "dI_dq" },
+          legend: { position: "bottom" },
+        };
+        var chart_arr_dI_dq2 = new google.visualization.LineChart(
+          document.getElementById("dI_dq2"),
+        );
+        chart_arr_dI_dq2.draw(data_arr_dI_dq2, options);
+
+        var options = {
+          title: "Изменения составляющих градиента при третьем эксперименте",
+          curveType: "none",
+          hAxis: { title: "l" },
+          vAxis: { title: "dI_dq" },
+          legend: { position: "bottom" },
+        };
+        var chart_arr_dI_dq3 = new google.visualization.LineChart(
+          document.getElementById("dI_dq3"),
+        );
+        chart_arr_dI_dq3.draw(data_arr_dI_dq3, options);
+
+        var data_arr_q1 = google.visualization.arrayToDataTable(arr_q1);
+        var options = {
+          title: "Изменения q1 по трем экспериментам",
+          curveType: "none",
+          hAxis: { title: "l" },
+          vAxis: { title: "q" },
+          legend: { position: "bottom" },
+        };
+        var chart_arr_q1 = new google.visualization.LineChart(
+          document.getElementById("first_experiment_q"),
+        );
+        chart_arr_q1.draw(data_arr_q1, options);
+
+        var data_arr_q2 = google.visualization.arrayToDataTable(arr_q2);
+        var options = {
+          title: "Изменения q2 по трем экспериментам",
+          curveType: "none",
+          hAxis: { title: "l" },
+          vAxis: { title: "q" },
+          legend: { position: "bottom" },
+        };
+        var chart_arr_q2 = new google.visualization.LineChart(
+          document.getElementById("second_experiment_q"),
+        );
+        chart_arr_q2.draw(data_arr_q2, options);
+
+        var data_arr_q3 = google.visualization.arrayToDataTable(arr_q3);
+        var options = {
+          title: "Изменения q3 по трем экспериментам",
+          curveType: "none",
+          hAxis: { title: "l" },
+          vAxis: { title: "q" },
+          legend: { position: "bottom" },
+        };
+        var chart_arr_q3 = new google.visualization.LineChart(
+          document.getElementById("third_experiment_q"),
+        );
+        chart_arr_q3.draw(data_arr_q3, options);
+
+        var data_arr_ksi = google.visualization.arrayToDataTable(
+          arr_ksi_all[index_record_ksi + 1],
+        );
+        var options = {
+          title: "Функции чувствительности для оптимальных параметров q",
+          curveType: "none",
+          hAxis: { title: "t" },
+          vAxis: { title: "ksi" },
+          legend: { position: "bottom" },
+        };
+        var chart_arr_ksi = new google.visualization.LineChart(
+          document.getElementById("ksi_optimal"),
+        );
+        chart_arr_ksi.draw(data_arr_ksi, options);
+
+        var data_arr_ksi_unoptimal =
+          google.visualization.arrayToDataTable(arr_ksi_unoptimal);
+        var options = {
+          title: "Неоптимальные функции чувствительности для начальных q_i",
+          curveType: "function",
+          hAxis: { title: "t" },
+          vAxis: { title: "ksi" },
+          legend: { position: "bottom" },
+        };
+        var chart_arr_ksi_unoptimal = new google.visualization.LineChart(
+          document.getElementById("ksi_unoptimal"),
+        );
+        chart_arr_ksi_unoptimal.draw(data_arr_ksi_unoptimal, options);
+      }
+    </script>
+  </head>
+  <body>
+    <div class="conteiner">
+      <p><b>Результаты моделирования</b></p>
+      <div class="main">
+        <div id="model_unoptim" style="width: 1800px; height: 800px"></div>
+        <div id="model_optim" style="width: 1800px; height: 800px"></div>
+        <div
+          id="nonoptimal_transients"
+          style="width: 1800px; height: 800px"
+        ></div>
+        <div id="first_experiment_q" style="width: 1800px; height: 800px"></div>
+        <div
+          id="second_experiment_q"
+          style="width: 1800px; height: 800px"
+        ></div>
+        <div id="third_experiment_q" style="width: 1800px; height: 800px"></div>
+        <div id="ksi_optimal" style="width: 1800px; height: 800px"></div>
+        <div id="ksi_unoptimal" style="width: 1800px; height: 800px"></div>
+        <div id="I" style="width: 1800px; height: 800px"></div>
+        <div id="dI_dq1" style="width: 1800px; height: 800px"></div>
+        <div id="dI_dq2" style="width: 1800px; height: 800px"></div>
+        <div id="dI_dq3" style="width: 1800px; height: 800px"></div>
+      </div>
+    </div>
+  </body>
+</html>

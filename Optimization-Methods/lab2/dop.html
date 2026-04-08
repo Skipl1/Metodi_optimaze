@@ -1,0 +1,389 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <script
+      type="text/javascript"
+      src="https://www.gstatic.com/charts/loader.js"
+    ></script>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 0;
+        padding: 20px;
+        background: #f5f6fa;
+      }
+      .container {
+        display: flex;
+        justify-content: center;
+        margin: 20px 0;
+      }
+      #result_info {
+        background: #fff;
+        padding: 15px;
+        border-radius: 8px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        max-width: 800px;
+        margin: 20px auto;
+        text-align: center;
+        font-size: 16px;
+      }
+    </style>
+    <script type="text/javascript">
+      google.charts.load("current", { packages: ["corechart"] });
+      google.charts.setOnLoadCallback(drawChart);
+
+      // ============================================================================
+      // Симуляция с расчётом функций чувствительности и градиента
+      // Градиент: ∂I/∂qj = -2 ∫ x(t) · ξj(t) dt
+      // ============================================================================
+      function simulate(q1, q2, q3) {
+        var T = 1,
+          k = 1,
+          zeta = 0.75,
+          tau = 0.1,
+          g = 1,
+          dt = 0.01,
+          L = 40;
+        var z1 = 0,
+          z2 = 0;
+        var x,
+          x_prev = g,
+          intx = 0,
+          dx,
+          u;
+        var I = 0;
+        var eta1 = 0,
+          eta2 = 0,
+          eta3 = 0;
+        var nu1 = 0,
+          nu2 = 0,
+          nu3 = 0;
+        var int_xi1 = 0,
+          int_xi2 = 0,
+          int_xi3 = 0;
+        var gradI1 = 0,
+          gradI2 = 0,
+          gradI3 = 0;
+        var data = [],
+          gradData = [];
+        var t_ = 0;
+
+        // --- Настройка запаздывания ---
+        var delaySteps = Math.max(1, Math.round(tau / dt));
+        var historyY = new Array(delaySteps).fill(0);
+        var historyXi1 = new Array(delaySteps).fill(0);
+        var historyXi2 = new Array(delaySteps).fill(0);
+        var historyXi3 = new Array(delaySteps).fill(0);
+
+        while (t_ <= L) {
+          var y_now = z1;
+
+          // Извлекаем задержанные значения (состояние системы tau секунд назад)
+          var y_delayed = historyY.shift();
+          var xi1_delayed = historyXi1.shift();
+          var xi2_delayed = historyXi2.shift();
+          var xi3_delayed = historyXi3.shift();
+
+          // ОШИБКА теперь считается по задержанному сигналу
+          x = g - y_delayed;
+          intx += x * dt;
+          dx = (x - x_prev) / dt;
+          x_prev = x;
+          u = q1 * x + q2 * intx + q3 * dx;
+          I += x * x * dt;
+
+          // Обновляем историю (добавляем текущие значения в конец очереди)
+          historyY.push(y_now);
+          historyXi1.push(eta1);
+          historyXi2.push(eta2);
+          historyXi3.push(eta3);
+
+          // Расчет производных управления по параметрам (с учетом задержки xi)
+          // d(dx)/dqj теперь тоже зависит от изменения задержанной xi
+          var dxi1_dt = nu1,
+            dxi2_dt = nu2,
+            dxi3_dt = nu3;
+
+          var du_dq1 = x - q1 * xi1_delayed - q2 * int_xi1 - q3 * dxi1_dt;
+          var du_dq2 = intx - q1 * xi2_delayed - q2 * int_xi2 - q3 * dxi2_dt;
+          var du_dq3 = dx - q1 * xi3_delayed - q2 * int_xi3 - q3 * dxi3_dt;
+
+          // Уравнения чувствительности (динамика объекта)
+          var dnu1_dt =
+            (k / (T * T)) * du_dq1 -
+            ((2 * zeta) / T) * nu1 -
+            (1 / (T * T)) * eta1;
+          var dnu2_dt =
+            (k / (T * T)) * du_dq2 -
+            ((2 * zeta) / T) * nu2 -
+            (1 / (T * T)) * eta2;
+          var dnu3_dt =
+            (k / (T * T)) * du_dq3 -
+            ((2 * zeta) / T) * nu3 -
+            (1 / (T * T)) * eta3;
+
+          // Эйлер для чувствительности
+          eta1 += nu1 * dt;
+          eta2 += nu2 * dt;
+          eta3 += nu3 * dt;
+          nu1 += dnu1_dt * dt;
+          nu2 += dnu2_dt * dt;
+          nu3 += dnu3_dt * dt;
+
+          int_xi1 += xi1_delayed * dt;
+          int_xi2 += xi2_delayed * dt;
+          int_xi3 += xi3_delayed * dt;
+
+          // Градиент: используем xi_delayed, так как ошибка x(t) вызвана именно этой xi
+          gradI1 += -2 * x * xi1_delayed * dt;
+          gradI2 += -2 * x * xi2_delayed * dt;
+          gradI3 += -2 * x * xi3_delayed * dt;
+
+          data.push([t_, x, eta1, eta2, eta3]);
+          gradData.push([
+            t_,
+            -2 * x * xi1_delayed,
+            -2 * x * xi2_delayed,
+            -2 * x * xi3_delayed,
+          ]);
+
+          // Рунге-Кутта 4 для самого объекта
+          var k1 = dt * (z2 - ((2 * zeta) / T) * y_now);
+          var m1 = dt * ((k / (T * T)) * u - y_now / (T * T));
+          var k2 = dt * (z2 + m1 / 2 - ((2 * zeta) / T) * (y_now + k1 / 2));
+          var m2 = dt * ((k / (T * T)) * u - (1 / (T * T)) * (y_now + k1 / 2));
+          var k3 = dt * (z2 + m2 / 2 - ((2 * zeta) / T) * (y_now + k2 / 2));
+          var m3 = dt * ((k / (T * T)) * u - (1 / (T * T)) * (y_now + k2 / 2));
+          var k4 = dt * (z2 + m3 - ((2 * zeta) / T) * (y_now + k3));
+          var m4 = dt * ((k / (T * T)) * u - (1 / (T * T)) * (y_now + k3));
+
+          z1 += (1 / 6) * (k1 + 2 * k2 + 2 * k3 + k4);
+          z2 += (1 / 6) * (m1 + 2 * m2 + 2 * m3 + m4);
+          t_ += dt;
+        }
+        return {
+          I: I,
+          grad: [gradI1, gradI2, gradI3],
+          data: data,
+          gradData: gradData,
+        };
+      }
+
+      // ============================================================================
+      // Градиентный спуск с нормализацией
+      // q_j[l] = q_j[l-1] - h · (∂I/q_j) / ||I||
+      // ============================================================================
+      function gradientNorm(grad) {
+        return Math.sqrt(
+          grad[0] * grad[0] + grad[1] * grad[1] + grad[2] * grad[2],
+        );
+      }
+
+      function clampParams(q) {
+        return q.map((val) => Math.max(0.0, val));
+      }
+
+      function runGradientDescent(qStart, hInit, maxIter) {
+        var q = qStart.slice();
+        var h = hInit; // Текущий шаг
+        var history = [];
+
+        // Считаем начальное состояние
+        var currentResult = simulate(q[0], q[1], q[2]);
+        var currentI = currentResult.I;
+
+        for (var iter = 0; iter < maxIter; iter++) {
+          var grad = currentResult.grad;
+          var norm = gradientNorm(grad);
+
+          if (norm < 0.0001) break; // Сходимость достигнута
+
+          // 1. Пробуем сделать шаг
+          var qNext = [];
+          for (var i = 0; i < 3; i++) {
+            qNext.push(q[i] - (h * grad[i]) / norm);
+          }
+          qNext = clampParams(qNext); // Не пускаем коэффициенты в минус
+
+          // 2. Симулируем систему с НОВЫМИ параметрами
+          var nextResult = simulate(qNext[0], qNext[1], qNext[2]);
+          var nextI = nextResult.I;
+
+          // 3. Проверяем: стало лучше или хуже?
+          if (nextI < currentI) {
+            // УСПЕХ: ошибка уменьшилась
+            q = qNext;
+            currentI = nextI;
+            currentResult = nextResult;
+            h *= 1.05; // Немного увеличиваем шаг, чтобы идти быстрее (оптимизм)
+
+            // Записываем историю только успешных шагов
+            history.push({
+              iter: iter + 1,
+              q1: q[0],
+              q2: q[1],
+              q3: q[2],
+              I: currentI,
+              norm: norm,
+              h: h, // Записываем текущий шаг для отладки
+            });
+          } else {
+            // ПРОВАЛ: мы перепрыгнули минимум или система стала неустойчивой
+            h *= 0.5; // Резко уменьшаем шаг (осторожность)
+            // Параметры q не обновляем, на следующей итерации попробуем шаг поменьше
+
+            // Если шаг стал совсем крошечным, выходим
+            if (h < 1e-7) break;
+          }
+        }
+
+        return {
+          q: q,
+          I: currentI,
+          grad: currentResult.grad,
+          history: history,
+        };
+      }
+
+      function drawChart() {
+        var qInit = [21.0, 3.0, 2.0];
+        var hStart = 1.0; // Можно начать с большого шага
+        var maxIter = 2000; // Адаптивному шагу обычно нужно меньше итераций
+        var optResult = runGradientDescent(qInit, hStart, maxIter);
+
+        // Вывод оптимальных параметров
+        document.getElementById("result_info").innerHTML =
+          "<strong>Оптимальные параметры:</strong> q* = [" +
+          optResult.q[0].toFixed(4) +
+          ", " +
+          optResult.q[1].toFixed(4) +
+          ", " +
+          optResult.q[2].toFixed(4) +
+          "]<br>" +
+          "<strong>Критерий:</strong> I* = " +
+          optResult.I.toFixed(4) +
+          "<br>" +
+          "<strong>Градиент:</strong> [" +
+          optResult.grad[0].toFixed(6) +
+          ", " +
+          optResult.grad[1].toFixed(6) +
+          ", " +
+          optResult.grad[2].toFixed(6) +
+          "]<br>" +
+          "<strong>Норма градиента:</strong> ||∇I|| = " +
+          gradientNorm(optResult.grad).toFixed(6);
+
+        var simBefore = simulate(qInit[0], qInit[1], qInit[2]);
+        var simAfter = simulate(optResult.q[0], optResult.q[1], optResult.q[2]);
+
+        // График 1: Функции чувствительности ДО оптимизации
+        var A_before = [["t", "x(t)", "ξ1(t)", "ξ2(t)", "ξ3(t)"]];
+        for (var i = 0; i < simBefore.data.length; i++)
+          A_before.push(simBefore.data[i]);
+        var dataBefore = google.visualization.arrayToDataTable(A_before);
+        new google.visualization.LineChart(
+          document.getElementById("curve_chart"),
+        ).draw(dataBefore, {
+          curveType: "function",
+          hAxis: { title: "Время t, с" },
+          vAxis: { title: "Амплитуда" },
+          legend: { position: "bottom" },
+          colors: ["#c0392b", "#27ae60", "#8e44ad", "#e67e22"],
+          lineWidth: 2,
+          title:
+            "ДО оптимизации (q = [" +
+            qInit[0].toFixed(2) +
+            ", " +
+            qInit[1].toFixed(2) +
+            ", " +
+            qInit[2].toFixed(2) +
+            "])",
+        });
+
+        // График 2: Функции чувствительности ПОСЛЕ оптимизации
+        var A_after = [["t", "x(t)", "ξ1(t)", "ξ2(t)", "ξ3(t)"]];
+        for (var i = 0; i < simAfter.data.length; i++)
+          A_after.push(simAfter.data[i]);
+        var dataAfter = google.visualization.arrayToDataTable(A_after);
+        new google.visualization.LineChart(
+          document.getElementById("after_chart"),
+        ).draw(dataAfter, {
+          curveType: "function",
+          hAxis: { title: "Время t, с" },
+          vAxis: { title: "Амплитуда" },
+          legend: { position: "bottom" },
+          colors: ["#c0392b", "#27ae60", "#8e44ad", "#e67e22"],
+          lineWidth: 2,
+          title:
+            "ПОСЛЕ оптимизации (q* = [" +
+            optResult.q[0].toFixed(2) +
+            ", " +
+            optResult.q[1].toFixed(2) +
+            ", " +
+            optResult.q[2].toFixed(2) +
+            "])",
+        });
+
+        // График 3: Подынтегральные выражения градиента
+        var B = [["t", "d(∂I/∂q₁)/dt", "d(∂I/∂q₂)/dt", "d(∂I/∂q₃)/dt"]];
+        for (var i = 0; i < simAfter.gradData.length; i++)
+          B.push(simAfter.gradData[i]);
+        var dataGrad = google.visualization.arrayToDataTable(B);
+        new google.visualization.LineChart(
+          document.getElementById("grad_chart"),
+        ).draw(dataGrad, {
+          curveType: "function",
+          hAxis: { title: "Время t, с" },
+          vAxis: { title: "Амплитуда" },
+          legend: { position: "bottom" },
+          colors: ["#c0392b", "#27ae60", "#8e44ad"],
+          lineWidth: 2,
+        });
+
+        // График 4: Сходимость градиентного спуска
+        var C = [["Итерация", "Критерий I"]];
+        for (var i = 0; i < optResult.history.length; i++)
+          C.push([optResult.history[i].iter, optResult.history[i].I]);
+        var dataConv = google.visualization.arrayToDataTable(C);
+        new google.visualization.LineChart(
+          document.getElementById("convergence_chart"),
+        ).draw(dataConv, {
+          curveType: "function",
+          hAxis: { title: "Итерация" },
+          vAxis: { title: "Критерий I" },
+          legend: { position: "none" },
+          colors: ["#2980b9"],
+          lineWidth: 2,
+        });
+      }
+    </script>
+  </head>
+  <body>
+    <div id="result_info"></div>
+    <h3 style="text-align: center">
+      Функции чувствительности ξ₁(t), ξ₂(t), ξ₃(t) и ошибка x(t) — ДО
+      оптимизации
+    </h3>
+    <div class="container">
+      <div id="curve_chart" style="width: 1200px; height: 700px"></div>
+    </div>
+    <h3 style="text-align: center">
+      Функции чувствительности ξ₁(t), ξ₂(t), ξ₃(t) и ошибка x(t) — ПОСЛЕ
+      оптимизации
+    </h3>
+
+    <div class="container">
+      <div id="after_chart" style="width: 1200px; height: 700px"></div>
+    </div>
+
+    <h3 style="text-align: center">Подынтегральные выражения градиента</h3>
+    <div class="container">
+      <div id="grad_chart" style="width: 1200px; height: 500px"></div>
+    </div>
+    <h3 style="text-align: center">Сходимость градиентного спуска</h3>
+    <div class="container">
+      <div id="convergence_chart" style="width: 1200px; height: 500px"></div>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,104 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <script
+      type="text/javascript"
+      src="https://www.gstatic.com/charts/loader.js"
+    ></script>
+    <script type="text/javascript">
+      google.charts.load("current", { packages: ["corechart"] });
+      google.charts.setOnLoadCallback(drawChart);
+
+      function drawChart() {
+        var T = 1;
+        var k = 1;
+        var zeta = 0.75;
+        var tau = 0.1;
+        var g = 1;
+        var dt = 0.01;
+        var L = 50;
+        var ns = Math.round(tau / dt);
+        var mas = [];
+        var z1 = 0;
+        var z2 = 0;
+        var y_now = 0;
+        var y_delayed = 0;
+        var x,
+          x_prev = 0;
+        var intx = 0;
+        var dx;
+        var u;
+        var t_ = 0;
+        var I = 0;
+        var mu = 0.01;
+        var q1 = 1;
+        var q2 = 0;
+        var q3 = 0;
+        var A = [
+          [
+            "t",
+            "y(t) - без запаздывания",
+            "y(t) - с запаздыванием",
+            "g(t) - вход",
+            "I(t) - ошибка",
+          ],
+        ];
+
+        x_prev = g - y_delayed;
+        while (t_ <= L) {
+          y_now = z1;
+          mas.push(y_now);
+          y_delayed = mas.length > ns ? mas.shift() : 0;
+          x = g - y_delayed;
+          intx += x * dt;
+          dx = (x - x_prev) / dt;
+          u = q1 * x + q2 * intx + q3 * dx;
+          x_prev = x;
+          I = I + (x * x + mu * mu * dx * dx) * dt;
+          A.push([t_, y_now, y_delayed, g, I]);
+
+          k1 = dt * (z2 - ((2 * zeta) / T) * y_now);
+          m1 = dt * ((k / (T * T)) * u - y_now / (T * T));
+
+          k2 = dt * (z2 + m1 / 2 - ((2 * zeta) / T) * (y_now + k1 / 2));
+          m2 = dt * ((k / (T * T)) * u - (1 / (T * T)) * (y_now + k1 / 2));
+
+          k3 = dt * (z2 + m2 / 2 - ((2 * zeta) / T) * (y_now + k2 / 2));
+          m3 = dt * ((k / (T * T)) * u - (1 / (T * T)) * (y_now + k2 / 2));
+
+          k4 = dt * (z2 + m3 - ((2 * zeta) / T) * (y_now + k3));
+          m4 = dt * ((k / (T * T)) * u - (1 / (T * T)) * (y_now + k3));
+
+          z1 = z1 + (1 / 6) * (k1 + 2 * k2 + 2 * k3 + k4);
+          z2 = z2 + (1 / 6) * (m1 + 2 * m2 + 2 * m3 + m4);
+          t_ = t_ + dt;
+        }
+
+        console.log("Итоговое значение интегральной ошибки I:", I);
+        var data = google.visualization.arrayToDataTable(A);
+        var options = {
+          curveType: "function",
+          hAxis: { title: "Время t, с" },
+          vAxis: {
+            title: "Амплитуда",
+            viewWindow: { min: -0.2, max: 2 },
+          },
+          legend: { position: "bottom" },
+          colors: ["#2980b9", "#c0392b", "#f1c40f", "#27ae60", "#8e44ad"],
+          lineWidth: 2,
+          chartArea: { width: "85%", height: "75%" },
+        };
+        var chart = new google.visualization.LineChart(
+          document.getElementById("curve_chart"),
+        );
+        chart.draw(data, options);
+      }
+    </script>
+  </head>
+  <body>
+    <div class="conteiner" style="display: flex; justify-content: center">
+      <div id="curve_chart" style="width: 900px; height: 600px"></div>
+    </div>
+  </body>
+</html>

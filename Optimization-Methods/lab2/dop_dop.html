@@ -1,0 +1,699 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <script
+      type="text/javascript"
+      src="https://www.gstatic.com/charts/loader.js"
+    ></script>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 0;
+        padding: 20px;
+        background: #f5f6fa;
+      }
+      .container {
+        display: flex;
+        justify-content: center;
+        margin: 20px 0;
+      }
+      #result_info {
+        background: #fff;
+        padding: 15px;
+        border-radius: 8px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        max-width: 800px;
+        margin: 20px auto;
+        text-align: center;
+        font-size: 16px;
+      }
+    </style>
+    <script type="text/javascript">
+      google.charts.load("current", { packages: ["corechart"] });
+      google.charts.setOnLoadCallback(drawChart);
+
+      // Функция симуляции - считает I и градиент
+      function simulate(q1, q2, q3) {
+        var T = 1,
+          k = 1,
+          zeta = 0.75,
+          tau = 0.1,
+          g = 1,
+          dt = 0.01,
+          L = 60;
+        var z1 = 0,
+          z2 = 0;
+        var x,
+          x_prev = g,
+          intx = 0,
+          dx,
+          u;
+        var I = 0;
+        var eta1 = 0,
+          eta2 = 0,
+          eta3 = 0;
+        var nu1 = 0,
+          nu2 = 0,
+          nu3 = 0;
+        var int_xi1 = 0,
+          int_xi2 = 0,
+          int_xi3 = 0;
+        var gradI1 = 0,
+          gradI2 = 0,
+          gradI3 = 0;
+        var data = [],
+          gradData = [],
+          gradIData = [];
+        var t_ = 0;
+
+        // Параметры эталонной модели
+        var T_ref = 0.6,
+          k_ref = 1;
+        var y_ref_prev = 0;
+
+        // Запаздывание
+        var delaySteps = Math.max(1, Math.round(tau / dt));
+        var historyY = new Array(delaySteps).fill(0);
+        var historyXi1 = new Array(delaySteps).fill(0);
+        var historyXi2 = new Array(delaySteps).fill(0);
+        var historyXi3 = new Array(delaySteps).fill(0);
+
+        while (t_ <= L) {
+          var y_now = z1;
+
+          // Достаём задержанные значения
+          var y_delayed = historyY.shift();
+          var xi1_delayed = historyXi1.shift();
+          var xi2_delayed = historyXi2.shift();
+          var xi3_delayed = historyXi3.shift();
+
+          // Ошибка по задержанному сигналу
+          x = g - y_delayed;
+          intx += x * dt;
+          dx = (x - x_prev) / dt;
+          x_prev = x;
+          u = q1 * x + q2 * intx + q3 * dx;
+
+          // Эталонная модель (Рунге-Кутта 4)
+          var obrat_g = g;
+          var k1_ref = dt * (-(y_ref_prev / T_ref) + (k_ref / T_ref) * obrat_g);
+          var k2_ref =
+            dt *
+            (-(y_ref_prev + k1_ref / 2) / T_ref + (k_ref / T_ref) * obrat_g);
+          var k3_ref =
+            dt *
+            (-(y_ref_prev + k2_ref / 2) / T_ref + (k_ref / T_ref) * obrat_g);
+          var k4_ref =
+            dt * (-(y_ref_prev + k3_ref) / T_ref + (k_ref / T_ref) * obrat_g);
+          var y_ref =
+            y_ref_prev + (1 / 6) * (k1_ref + 2 * k2_ref + 2 * k3_ref + k4_ref);
+          y_ref_prev = y_ref;
+
+          // Разница с эталоном
+          var diff = y_delayed - y_ref;
+
+          // Функционал I
+          I += diff * diff * dt;
+
+          // Обновляем историю
+          historyY.push(y_now);
+          historyXi1.push(eta1);
+          historyXi2.push(eta2);
+          historyXi3.push(eta3);
+
+          // Производные управления
+          // d(dx)/dqj теперь тоже зависит от изменения задержанной xi
+          var dxi1_dt = nu1,
+            dxi2_dt = nu2,
+            dxi3_dt = nu3;
+
+          var du_dq1 = x - q1 * xi1_delayed - q2 * int_xi1 - q3 * dxi1_dt;
+          var du_dq2 = intx - q1 * xi2_delayed - q2 * int_xi2 - q3 * dxi2_dt;
+          var du_dq3 = dx - q1 * xi3_delayed - q2 * int_xi3 - q3 * dxi3_dt;
+
+          // Уравнения чувствительности (динамика объекта)
+          var dnu1_dt =
+            (k / (T * T)) * du_dq1 -
+            ((2 * zeta) / T) * nu1 -
+            (1 / (T * T)) * eta1;
+          var dnu2_dt =
+            (k / (T * T)) * du_dq2 -
+            ((2 * zeta) / T) * nu2 -
+            (1 / (T * T)) * eta2;
+          var dnu3_dt =
+            (k / (T * T)) * du_dq3 -
+            ((2 * zeta) / T) * nu3 -
+            (1 / (T * T)) * eta3;
+
+          // Эйлер для чувствительности
+          eta1 += nu1 * dt;
+          eta2 += nu2 * dt;
+          eta3 += nu3 * dt;
+          nu1 += dnu1_dt * dt;
+          nu2 += dnu2_dt * dt;
+          nu3 += dnu3_dt * dt;
+
+          int_xi1 += xi1_delayed * dt;
+          int_xi2 += xi2_delayed * dt;
+          int_xi3 += xi3_delayed * dt;
+
+          // Новый градиент: ∂I/∂qj = 2 ∫ (y - y_эт) · ξj dt
+          gradI1 += 2 * diff * xi1_delayed * dt;
+          gradI2 += 2 * diff * xi2_delayed * dt;
+          gradI3 += 2 * diff * xi3_delayed * dt;
+
+          data.push([t_, x, eta1, eta2, eta3, y_ref, y_delayed]);
+          gradData.push([
+            t_,
+            2 * diff * xi1_delayed,
+            2 * diff * xi2_delayed,
+            2 * diff * xi3_delayed,
+          ]);
+          gradIData.push([t_, gradI1, gradI2, gradI3]);
+
+          // Рунге-Кутта 4 для самого объекта
+          var k1 = dt * (z2 - ((2 * zeta) / T) * y_now);
+          var m1 = dt * ((k / (T * T)) * u - y_now / (T * T));
+          var k2 = dt * (z2 + m1 / 2 - ((2 * zeta) / T) * (y_now + k1 / 2));
+          var m2 = dt * ((k / (T * T)) * u - (1 / (T * T)) * (y_now + k1 / 2));
+          var k3 = dt * (z2 + m2 / 2 - ((2 * zeta) / T) * (y_now + k2 / 2));
+          var m3 = dt * ((k / (T * T)) * u - (1 / (T * T)) * (y_now + k2 / 2));
+          var k4 = dt * (z2 + m3 - ((2 * zeta) / T) * (y_now + k3));
+          var m4 = dt * ((k / (T * T)) * u - (1 / (T * T)) * (y_now + k3));
+
+          z1 += (1 / 6) * (k1 + 2 * k2 + 2 * k3 + k4);
+          z2 += (1 / 6) * (m1 + 2 * m2 + 2 * m3 + m4);
+          t_ += dt;
+        }
+        return {
+          I: I,
+          grad: [gradI1, gradI2, gradI3],
+          data: data,
+          gradData: gradData,
+          gradIData: gradIData,
+        };
+      }
+
+      // Метод наискорейшего спуска (градиент + линейный поиск)
+      function gradientNorm(grad) {
+        return Math.sqrt(
+          grad[0] * grad[0] + grad[1] * grad[1] + grad[2] * grad[2],
+        );
+      }
+
+      function clampParams(q) {
+        return q.map((val) => Math.max(0.0, val));
+      }
+
+      function runSteepestDescent(qStart, hInit, maxIter) {
+        var q = qStart.slice();
+        var h = hInit;
+        var history = [];
+        var totalIter = 0;
+
+        // Начальное состояние
+        var currentResult = simulate(q[0], q[1], q[2]);
+        var currentI = currentResult.I;
+
+        while (totalIter < maxIter) {
+          var grad = currentResult.grad;
+          var norm = gradientNorm(grad);
+
+          // Проверка сходимости
+          if (norm < 1e-5) break;
+
+          // Направление спуска
+          var S = [-grad[0] / norm, -grad[1] / norm, -grad[2] / norm];
+
+          // Линейный поиск
+          var qBest = q.slice();
+          var IBest = currentI;
+          var stepCount = 0;
+          var hCurrent = h;
+
+          while (stepCount < 100) {
+            var qNext = [];
+            for (var i = 0; i < 3; i++) {
+              qNext.push(q[i] + hCurrent * S[i]);
+            }
+            qNext = clampParams(qNext);
+
+            var nextResult = simulate(qNext[0], qNext[1], qNext[2]);
+            var nextI = nextResult.I;
+
+            if (nextI < IBest) {
+              qBest = qNext.slice();
+              IBest = nextI;
+              q = qNext.slice();
+              hCurrent *= 1.2;
+              stepCount++;
+            } else {
+              break;
+            }
+          }
+
+          q = qBest.slice();
+          currentI = IBest;
+          currentResult = simulate(q[0], q[1], q[2]);
+
+          // Записываем историю
+          history.push({
+            iter: totalIter + 1,
+            q1: q[0],
+            q2: q[1],
+            q3: q[2],
+            I: currentI,
+            norm: norm,
+            g1: grad[0],
+            g2: grad[1],
+            g3: grad[2],
+          });
+
+          totalIter++;
+
+          if (stepCount === 0) {
+            h *= 0.5;
+            if (h < 1e-7) break;
+          } else {
+            h = hInit;
+          }
+        }
+
+        return {
+          q: q,
+          I: currentI,
+          grad: currentResult.grad,
+          history: history,
+        };
+      }
+
+      function drawChart() {
+        // 3 набора параметров
+        var qInit_sets = [
+          [1.0, 0.0, 0.0],
+          [0.1, 0.01, 7.0],
+          [10.0, 2.0, 0.0],
+        ];
+
+        var qInit = qInit_sets[0];
+        var hStart = 0.5;
+        var maxIter = 50;
+        var optResult = runSteepestDescent(qInit, hStart, maxIter);
+
+        // Запускаем оптимизацию для всех 3 наборов
+        var optResult1 = runSteepestDescent(qInit_sets[0], hStart, maxIter);
+        var optResult2 = runSteepestDescent(qInit_sets[1], hStart, maxIter);
+        var optResult3 = runSteepestDescent(qInit_sets[2], hStart, maxIter);
+
+        // Вывод оптимальных параметров
+        document.getElementById("result_info").innerHTML =
+          "<strong>Оптимальные параметры:</strong> q* = [" +
+          optResult.q[0].toFixed(4) +
+          ", " +
+          optResult.q[1].toFixed(4) +
+          ", " +
+          optResult.q[2].toFixed(4) +
+          "]<br>" +
+          "<strong>Критерий:</strong> I* = " +
+          optResult.I.toFixed(4) +
+          "<br>" +
+          "<strong>Градиент:</strong> [" +
+          optResult.grad[0].toFixed(6) +
+          ", " +
+          optResult.grad[1].toFixed(6) +
+          ", " +
+          optResult.grad[2].toFixed(6) +
+          "]<br>" +
+          "<strong>Норма градиента:</strong> ||∇I|| = " +
+          gradientNorm(optResult.grad).toFixed(6);
+
+        var simBefore = simulate(qInit[0], qInit[1], qInit[2]);
+        var simAfter = simulate(optResult.q[0], optResult.q[1], optResult.q[2]);
+
+        // === ГРАФИКИ ДЛЯ ТРЁХ НАБОРОВ НАЧАЛЬНЫХ ПАРАМЕТРОВ ===
+        // Общий график: все 3 набора ДО оптимизации + ПОСЛЕ оптимизации + эталонная модель
+
+        var simSet1_before = simulate(
+          qInit_sets[0][0],
+          qInit_sets[0][1],
+          qInit_sets[0][2],
+        );
+        var simSet2_before = simulate(
+          qInit_sets[1][0],
+          qInit_sets[1][1],
+          qInit_sets[1][2],
+        );
+        var simSet3_before = simulate(
+          qInit_sets[2][0],
+          qInit_sets[2][1],
+          qInit_sets[2][2],
+        );
+
+        var simSet1_after = simulate(
+          optResult1.q[0],
+          optResult1.q[1],
+          optResult1.q[2],
+        );
+        var simSet2_after = simulate(
+          optResult2.q[0],
+          optResult2.q[1],
+          optResult2.q[2],
+        );
+        var simSet3_after = simulate(
+          optResult3.q[0],
+          optResult3.q[1],
+          optResult3.q[2],
+        );
+
+        // График 1: Переходные процессы (3 набора ДО и ПОСЛЕ + эталон)
+        var transAllData = [
+          [
+            "t",
+            "Набор 1: q=[1.0, 0.0, 0.0]",
+            "Набор 2: q=[0.1, 0.01, 7.0]",
+            "Набор 3: q=[10.0, 2.0, 0.0]",
+            "q*=[" +
+              optResult1.q[0].toFixed(2) +
+              ", " +
+              optResult1.q[1].toFixed(2) +
+              ", " +
+              optResult1.q[2].toFixed(2) +
+              "]",
+            "y_эт(t)",
+          ],
+        ];
+        for (var i = 0; i < simSet1_before.data.length; i++) {
+          transAllData.push([
+            simSet1_before.data[i][0],
+            simSet1_before.data[i][6],
+            simSet2_before.data[i][6],
+            simSet3_before.data[i][6],
+            simSet1_after.data[i][6],
+            simSet1_after.data[i][5],
+          ]);
+        }
+        var dataTransAll = google.visualization.arrayToDataTable(transAllData);
+        new google.visualization.LineChart(
+          document.getElementById("all_sets_chart"),
+        ).draw(dataTransAll, {
+          curveType: "function",
+          hAxis: { title: "Время t, с" },
+          vAxis: { title: "Амплитуда" },
+          legend: { position: "bottom", alignment: "center", fontSize: 14 },
+          chartArea: { width: "80%", height: "75%" },
+          colors: ["#e74c3c", "#3498db", "#f1c40f", "#27ae60", "#2ecc71"],
+          lineWidth: 2,
+          title: "Переходные процессы: 3 набора",
+        });
+
+        // График 2: Функции чувствительности
+        var sensDataAll = [["t", "ξ1(t)", "ξ2(t)", "ξ3(t)"]];
+        for (var i = 0; i < simSet1_after.data.length; i++) {
+          sensDataAll.push([
+            simSet1_after.data[i][0],
+            simSet1_after.data[i][2],
+            simSet1_after.data[i][3],
+            simSet1_after.data[i][4],
+          ]);
+        }
+        var dataSensAll = google.visualization.arrayToDataTable(sensDataAll);
+        new google.visualization.LineChart(
+          document.getElementById("sens_all_chart"),
+        ).draw(dataSensAll, {
+          curveType: "function",
+          hAxis: { title: "Время t, с" },
+          vAxis: { title: "Амплитуда" },
+          legend: { position: "bottom", maxLines: 2 },
+          chartArea: { width: "85%", height: "75%" },
+          colors: ["#27ae60", "#8e44ad", "#e67e22"],
+          lineWidth: 2,
+          title: "Функции чувствительности",
+        });
+
+        // График 3: Сходимость I
+        var convAllData = [["Итерация", "Набор 1", "Набор 2", "Набор 3"]];
+        var maxLen = Math.min(
+          50,
+          optResult1.history.length,
+          optResult2.history.length,
+          optResult3.history.length,
+        );
+        for (var i = 0; i < maxLen; i++) {
+          var v1 = optResult1.history[i].I;
+          var v2 = optResult2.history[i].I;
+          var v3 = optResult3.history[i].I;
+          convAllData.push([i + 1, v1, v2, v3]);
+        }
+        var dataConvAll = google.visualization.arrayToDataTable(convAllData);
+        new google.visualization.LineChart(
+          document.getElementById("conv_all_chart"),
+        ).draw(dataConvAll, {
+          curveType: "function",
+          hAxis: { title: "Итерация" },
+          vAxis: { title: "Критерий I" },
+          legend: { position: "bottom", maxLines: 2 },
+          chartArea: { width: "85%", height: "75%" },
+          colors: ["#e74c3c", "#3498db", "#f1c40f"],
+          lineWidth: 2,
+          title: "Сходимость I (I* = " + optResult1.I.toFixed(4) + ")",
+        });
+
+        // График 4: Сходимость q1
+        var F_q1 = [["Итерация", "Набор 1", "Набор 2", "Набор 3"]];
+        var maxLenQ = Math.max(
+          optResult1.history.length,
+          optResult2.history.length,
+          optResult3.history.length,
+        );
+        for (var i = 0; i < maxLenQ; i++) {
+          var v1 =
+            i < optResult1.history.length
+              ? optResult1.history[i].q1
+              : optResult1.q[0];
+          var v2 =
+            i < optResult2.history.length
+              ? optResult2.history[i].q1
+              : optResult2.q[0];
+          var v3 =
+            i < optResult3.history.length
+              ? optResult3.history[i].q1
+              : optResult3.q[0];
+          F_q1.push([i + 1, v1, v2, v3]);
+        }
+        var dataQ1 = google.visualization.arrayToDataTable(F_q1);
+        new google.visualization.LineChart(
+          document.getElementById("q1_conv_chart"),
+        ).draw(dataQ1, {
+          curveType: "function",
+          hAxis: { title: "Итерация" },
+          vAxis: { title: "q1" },
+          legend: { position: "bottom", maxLines: 2 },
+          chartArea: { width: "85%", height: "75%" },
+          colors: ["#e74c3c", "#3498db", "#f1c40f"],
+          lineWidth: 2,
+          title: "Сходимость q1 → " + optResult1.q[0].toFixed(2),
+        });
+
+        // График 5: Сходимость q2
+        var F_q2 = [["Итерация", "Набор 1", "Набор 2", "Набор 3"]];
+        for (var i = 0; i < maxLenQ; i++) {
+          var v1 =
+            i < optResult1.history.length
+              ? optResult1.history[i].q2
+              : optResult1.q[1];
+          var v2 =
+            i < optResult2.history.length
+              ? optResult2.history[i].q2
+              : optResult2.q[1];
+          var v3 =
+            i < optResult3.history.length
+              ? optResult3.history[i].q2
+              : optResult3.q[1];
+          F_q2.push([i + 1, v1, v2, v3]);
+        }
+        var dataQ2 = google.visualization.arrayToDataTable(F_q2);
+        new google.visualization.LineChart(
+          document.getElementById("q2_conv_chart"),
+        ).draw(dataQ2, {
+          curveType: "function",
+          hAxis: { title: "Итерация" },
+          vAxis: { title: "q2" },
+          legend: { position: "bottom", maxLines: 2 },
+          chartArea: { width: "85%", height: "75%" },
+          colors: ["#e74c3c", "#3498db", "#f1c40f"],
+          lineWidth: 2,
+          title: "Сходимость q2 → " + optResult1.q[1].toFixed(2),
+        });
+
+        // График 6: Сходимость q3
+        var F_q3 = [["Итерация", "Набор 1", "Набор 2", "Набор 3"]];
+        for (var i = 0; i < maxLenQ; i++) {
+          var v1 =
+            i < optResult1.history.length
+              ? optResult1.history[i].q3
+              : optResult1.q[2];
+          var v2 =
+            i < optResult2.history.length
+              ? optResult2.history[i].q3
+              : optResult2.q[2];
+          var v3 =
+            i < optResult3.history.length
+              ? optResult3.history[i].q3
+              : optResult3.q[2];
+          F_q3.push([i + 1, v1, v2, v3]);
+        }
+        var dataQ3 = google.visualization.arrayToDataTable(F_q3);
+        new google.visualization.LineChart(
+          document.getElementById("q3_conv_chart"),
+        ).draw(dataQ3, {
+          curveType: "function",
+          hAxis: { title: "Итерация" },
+          vAxis: { title: "q3" },
+          legend: { position: "bottom", maxLines: 2 },
+          chartArea: { width: "85%", height: "75%" },
+          colors: ["#e74c3c", "#3498db", "#f1c40f"],
+          lineWidth: 2,
+          title: "Сходимость q3 → " + optResult1.q[2].toFixed(2),
+        });
+
+        // График 7: Сходимость составляющих градиента к нулю - Набор 1
+        var gradConvData1 = [["Итерация", "dI/dq1", "dI/dq2", "dI/dq3"]];
+        for (var i = 0; i < optResult1.history.length; i++) {
+          gradConvData1.push([
+            optResult1.history[i].iter,
+            optResult1.history[i].g1,
+            optResult1.history[i].g2,
+            optResult1.history[i].g3,
+          ]);
+        }
+        var dataGradConv1 =
+          google.visualization.arrayToDataTable(gradConvData1);
+        new google.visualization.LineChart(
+          document.getElementById("grad_conv_chart"),
+        ).draw(dataGradConv1, {
+          curveType: "function",
+          hAxis: { title: "Итерация" },
+          vAxis: { title: "Значение производной" },
+          legend: { position: "bottom", maxLines: 2 },
+          chartArea: { width: "85%", height: "75%" },
+          colors: ["#e74c3c", "#3498db", "#f1c40f"],
+          lineWidth: 2,
+          title: "Сходимость градиента (Набор 1: q=[1.0, 0.0, 0.0])",
+        });
+
+        // График 8: Сходимость составляющих градиента к нулю - Набор 2
+        var gradConvData2 = [["Итерация", "dI/dq1", "dI/dq2", "dI/dq3"]];
+        for (var i = 0; i < optResult2.history.length; i++) {
+          gradConvData2.push([
+            optResult2.history[i].iter,
+            optResult2.history[i].g1,
+            optResult2.history[i].g2,
+            optResult2.history[i].g3,
+          ]);
+        }
+        var dataGradConv2 =
+          google.visualization.arrayToDataTable(gradConvData2);
+        new google.visualization.LineChart(
+          document.getElementById("grad_conv2_chart"),
+        ).draw(dataGradConv2, {
+          curveType: "function",
+          hAxis: { title: "Итерация" },
+          vAxis: { title: "Значение производной" },
+          legend: { position: "bottom", maxLines: 2 },
+          chartArea: { width: "85%", height: "75%" },
+          colors: ["#e74c3c", "#3498db", "#f1c40f"],
+          lineWidth: 2,
+          title: "Сходимость градиента (Набор 2: q=[0.1, 0.01, 7.0])",
+        });
+
+        // График 9: Сходимость составляющих градиента к нулю - Набор 3
+        var gradConvData3 = [["Итерация", "dI/dq1", "dI/dq2", "dI/dq3"]];
+        for (var i = 0; i < optResult3.history.length; i++) {
+          gradConvData3.push([
+            optResult3.history[i].iter,
+            optResult3.history[i].g1,
+            optResult3.history[i].g2,
+            optResult3.history[i].g3,
+          ]);
+        }
+        var dataGradConv3 =
+          google.visualization.arrayToDataTable(gradConvData3);
+        new google.visualization.LineChart(
+          document.getElementById("grad_conv3_chart"),
+        ).draw(dataGradConv3, {
+          curveType: "function",
+          hAxis: { title: "Итерация" },
+          vAxis: { title: "Значение производной" },
+          legend: { position: "bottom", maxLines: 2 },
+          chartArea: { width: "85%", height: "75%" },
+          colors: ["#e74c3c", "#3498db", "#f1c40f"],
+          lineWidth: 2,
+          title: "Сходимость градиента (Набор 3: q=[10.0, 2.0, 0.0])",
+        });
+      }
+    </script>
+  </head>
+  <body>
+    <div id="result_info"></div>
+
+    <h2 style="text-align: center; color: #2c3e50">
+      Пункт 3: Подтверждение работоспособности алгоритма оптимизации
+    </h2>
+
+    <h3 style="text-align: center">3 набора</h3>
+    <div class="container">
+      <div id="all_sets_chart" style="width: 1200px; height: 900px"></div>
+    </div>
+
+    <h3 style="text-align: center">Функции чувствительности</h3>
+    <div class="container">
+      <div id="sens_all_chart" style="width: 1200px; height: 500px"></div>
+    </div>
+
+    <h3 style="text-align: center">Сходимость I</h3>
+    <div class="container">
+      <div id="conv_all_chart" style="width: 1200px; height: 500px"></div>
+    </div>
+
+    <h2 style="text-align: center; color: #2c3e50">
+      Пункт 3.2: Сходимость параметров ПИД-регулятора
+    </h2>
+
+    <h3 style="text-align: center">Сходимость q1</h3>
+    <div class="container">
+      <div id="q1_conv_chart" style="width: 1200px; height: 500px"></div>
+    </div>
+
+    <h3 style="text-align: center">Сходимость q2</h3>
+    <div class="container">
+      <div id="q2_conv_chart" style="width: 1200px; height: 500px"></div>
+    </div>
+
+    <h3 style="text-align: center">Сходимость q3</h3>
+    <div class="container">
+      <div id="q3_conv_chart" style="width: 1200px; height: 500px"></div>
+    </div>
+
+    <h3 style="text-align: center">
+      Сходимость составляющих градиента (Набор 1)
+    </h3>
+    <div class="container">
+      <div id="grad_conv_chart" style="width: 1200px; height: 500px"></div>
+    </div>
+
+    <h3 style="text-align: center">
+      Сходимость составляющих градиента (Набор 2)
+    </h3>
+    <div class="container">
+      <div id="grad_conv2_chart" style="width: 1200px; height: 500px"></div>
+    </div>
+
+    <h3 style="text-align: center">
+      Сходимость составляющих градиента (Набор 3)
+    </h3>
+    <div class="container">
+      <div id="grad_conv3_chart" style="width: 1200px; height: 500px"></div>
+    </div>
+  </body>
+</html>
