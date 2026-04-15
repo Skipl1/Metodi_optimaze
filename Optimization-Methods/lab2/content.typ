@@ -206,7 +206,7 @@ $ I_3 = ∫_(0)^(∞) (x^2(t) + μ^2 hat(x)^2(t)) d t $
 )
 Применение метода покоординатного спуска дало заметный результат. На графиках видно, что переходный процесс стал гораздо качественнее по сравнению с начальной настройкой: система быстрее выходит на заданный уровень, а разрыв между желаемым и реальным значением сокращается значительно эффективнее. 
 
-Также уменьшилась интегральная ошибка $I$ почти в 11,875 раза (с $2,85$ до $0,24811$). Визуально это подтверждается тем, что кривая на графике теперь плотнее прилегает к линии уставки $y=1$. Полное совпадение графиков, полученных при расчете и в среде SimInTech, доказывает, что алгоритм оптимизации отработал корректно.
+Также уменьшилась интегральная ошибка $I$ почти в 11,43 раза (с $2,85$ до $0,24915$). Визуально это подтверждается тем, что кривая на графике теперь плотнее прилегает к линии уставки $y=1$. Полное совпадение графиков, полученных при расчете и в среде SimInTech, доказывает, что алгоритм оптимизации отработал корректно.
 
 #pagebreak()
 
@@ -455,7 +455,8 @@ $ (∂I)/(∂q_j) = 2 ∫_(0)^(L) (y(t) - y_"эт"(t)) · ξ_j(t) d t, quad j = 
       google.charts.setOnLoadCallback(drawChart);
 
       // Симуляция: считает I и градиент по методу чувствительности
-      function simulate(q1, q2, q3) {
+      function simulate(q1, q2, q3, computeGrad) {
+        if (computeGrad === undefined) computeGrad = true;
         // Параметры объекта: T, k, zeta, tau — запаздывание
         var T = 1,
           k = 1,
@@ -554,116 +555,125 @@ $ (∂I)/(∂q_j) = 2 ∫_(0)^(L) (y(t) - y_"эт"(t)) · ξ_j(t) d t, quad j = 
             dxi2_dt = nu2,
             dxi3_dt = nu3;
 
-          var du_dq1 = x - q1 * xi1_delayed - q2 * int_xi1 - q3 * dxi1_dt;
-          var du_dq2 = intx - q1 * xi2_delayed - q2 * int_xi2 - q3 * dxi2_dt;
-          var du_dq3 = dx - q1 * xi3_delayed - q2 * int_xi3 - q3 * dxi3_dt;
+          var du_dq1 = computeGrad
+            ? x - q1 * xi1_delayed - q2 * int_xi1 - q3 * dxi1_dt
+            : 0;
+          var du_dq2 = computeGrad
+            ? intx - q1 * xi2_delayed - q2 * int_xi2 - q3 * dxi2_dt
+            : 0;
+          var du_dq3 = computeGrad
+            ? dx - q1 * xi3_delayed - q2 * int_xi3 - q3 * dxi3_dt
+            : 0;
 
-          // Уравнения чувствительности: deta/dt = nu, dnu/dt = (k/T²)·du/dq - (2ζ/T)·nu - (1/T²)·eta
+          // Уравнения чувствительности
+          if (computeGrad) {
+            // РК4 для чувствительности ξ1 (eta1, nu1)
+            var eta1_k1 = nu1 * dt;
+            var nu1_k1 =
+              ((k / (T * T)) * du_dq1 -
+                ((2 * zeta) / T) * nu1 -
+                (1 / (T * T)) * eta1) *
+              dt;
 
-          // РК4 для чувствительности ξ1 (eta1, nu1)
-          var eta1_k1 = nu1 * dt;
-          var nu1_k1 =
-            ((k / (T * T)) * du_dq1 -
-              ((2 * zeta) / T) * nu1 -
-              (1 / (T * T)) * eta1) *
-            dt;
+            var eta1_k2 = (nu1 + nu1_k1 / 2) * dt;
+            var nu1_k2 =
+              ((k / (T * T)) * du_dq1 -
+                ((2 * zeta) / T) * (nu1 + nu1_k1 / 2) -
+                (1 / (T * T)) * (eta1 + eta1_k1 / 2)) *
+              dt;
 
-          var eta1_k2 = (nu1 + nu1_k1 / 2) * dt;
-          var nu1_k2 =
-            ((k / (T * T)) * du_dq1 -
-              ((2 * zeta) / T) * (nu1 + nu1_k1 / 2) -
-              (1 / (T * T)) * (eta1 + eta1_k1 / 2)) *
-            dt;
+            var eta1_k3 = (nu1 + nu1_k2 / 2) * dt;
+            var nu1_k3 =
+              ((k / (T * T)) * du_dq1 -
+                ((2 * zeta) / T) * (nu1 + nu1_k2 / 2) -
+                (1 / (T * T)) * (eta1 + eta1_k2 / 2)) *
+              dt;
 
-          var eta1_k3 = (nu1 + nu1_k2 / 2) * dt;
-          var nu1_k3 =
-            ((k / (T * T)) * du_dq1 -
-              ((2 * zeta) / T) * (nu1 + nu1_k2 / 2) -
-              (1 / (T * T)) * (eta1 + eta1_k2 / 2)) *
-            dt;
+            var eta1_k4 = (nu1 + nu1_k3) * dt;
+            var nu1_k4 =
+              ((k / (T * T)) * du_dq1 -
+                ((2 * zeta) / T) * (nu1 + nu1_k3) -
+                (1 / (T * T)) * (eta1 + eta1_k3)) *
+              dt;
 
-          var eta1_k4 = (nu1 + nu1_k3) * dt;
-          var nu1_k4 =
-            ((k / (T * T)) * du_dq1 -
-              ((2 * zeta) / T) * (nu1 + nu1_k3) -
-              (1 / (T * T)) * (eta1 + eta1_k3)) *
-            dt;
+            eta1 = eta1 + (eta1_k1 + 2 * eta1_k2 + 2 * eta1_k3 + eta1_k4) / 6;
+            nu1 = nu1 + (nu1_k1 + 2 * nu1_k2 + 2 * nu1_k3 + nu1_k4) / 6;
 
-          eta1 = eta1 + (eta1_k1 + 2 * eta1_k2 + 2 * eta1_k3 + eta1_k4) / 6;
-          nu1 = nu1 + (nu1_k1 + 2 * nu1_k2 + 2 * nu1_k3 + nu1_k4) / 6;
+            // РК4 для ξ2 (eta2, nu2)
+            var eta2_k1 = nu2 * dt;
+            var nu2_k1 =
+              ((k / (T * T)) * du_dq2 -
+                ((2 * zeta) / T) * nu2 -
+                (1 / (T * T)) * eta2) *
+              dt;
 
-          // РК4 для ξ2 (eta2, nu2)
-          var eta2_k1 = nu2 * dt;
-          var nu2_k1 =
-            ((k / (T * T)) * du_dq2 -
-              ((2 * zeta) / T) * nu2 -
-              (1 / (T * T)) * eta2) *
-            dt;
+            var eta2_k2 = (nu2 + nu2_k1 / 2) * dt;
+            var nu2_k2 =
+              ((k / (T * T)) * du_dq2 -
+                ((2 * zeta) / T) * (nu2 + nu2_k1 / 2) -
+                (1 / (T * T)) * (eta2 + eta2_k1 / 2)) *
+              dt;
 
-          var eta2_k2 = (nu2 + nu2_k1 / 2) * dt;
-          var nu2_k2 =
-            ((k / (T * T)) * du_dq2 -
-              ((2 * zeta) / T) * (nu2 + nu2_k1 / 2) -
-              (1 / (T * T)) * (eta2 + eta2_k1 / 2)) *
-            dt;
+            var eta2_k3 = (nu2 + nu2_k2 / 2) * dt;
+            var nu2_k3 =
+              ((k / (T * T)) * du_dq2 -
+                ((2 * zeta) / T) * (nu2 + nu2_k2 / 2) -
+                (1 / (T * T)) * (eta2 + eta2_k2 / 2)) *
+              dt;
 
-          var eta2_k3 = (nu2 + nu2_k2 / 2) * dt;
-          var nu2_k3 =
-            ((k / (T * T)) * du_dq2 -
-              ((2 * zeta) / T) * (nu2 + nu2_k2 / 2) -
-              (1 / (T * T)) * (eta2 + eta2_k2 / 2)) *
-            dt;
+            var eta2_k4 = (nu2 + nu2_k3) * dt;
+            var nu2_k4 =
+              ((k / (T * T)) * du_dq2 -
+                ((2 * zeta) / T) * (nu2 + nu2_k3) -
+                (1 / (T * T)) * (eta2 + eta2_k3)) *
+              dt;
 
-          var eta2_k4 = (nu2 + nu2_k3) * dt;
-          var nu2_k4 =
-            ((k / (T * T)) * du_dq2 -
-              ((2 * zeta) / T) * (nu2 + nu2_k3) -
-              (1 / (T * T)) * (eta2 + eta2_k3)) *
-            dt;
+            eta2 = eta2 + (eta2_k1 + 2 * eta2_k2 + 2 * eta2_k3 + eta2_k4) / 6;
+            nu2 = nu2 + (nu2_k1 + 2 * nu2_k2 + 2 * nu2_k3 + nu2_k4) / 6;
 
-          eta2 = eta2 + (eta2_k1 + 2 * eta2_k2 + 2 * eta2_k3 + eta2_k4) / 6;
-          nu2 = nu2 + (nu2_k1 + 2 * nu2_k2 + 2 * nu2_k3 + nu2_k4) / 6;
+            // РК4 для ξ3 (eta3, nu3)
+            var eta3_k1 = nu3 * dt;
+            var nu3_k1 =
+              ((k / (T * T)) * du_dq3 -
+                ((2 * zeta) / T) * nu3 -
+                (1 / (T * T)) * eta3) *
+              dt;
 
-          // РК4 для ξ3 (eta3, nu3)
-          var eta3_k1 = nu3 * dt;
-          var nu3_k1 =
-            ((k / (T * T)) * du_dq3 -
-              ((2 * zeta) / T) * nu3 -
-              (1 / (T * T)) * eta3) *
-            dt;
+            var eta3_k2 = (nu3 + nu3_k1 / 2) * dt;
+            var nu3_k2 =
+              ((k / (T * T)) * du_dq3 -
+                ((2 * zeta) / T) * (nu3 + nu3_k1 / 2) -
+                (1 / (T * T)) * (eta3 + eta3_k1 / 2)) *
+              dt;
 
-          var eta3_k2 = (nu3 + nu3_k1 / 2) * dt;
-          var nu3_k2 =
-            ((k / (T * T)) * du_dq3 -
-              ((2 * zeta) / T) * (nu3 + nu3_k1 / 2) -
-              (1 / (T * T)) * (eta3 + eta3_k1 / 2)) *
-            dt;
+            var eta3_k3 = (nu3 + nu3_k2 / 2) * dt;
+            var nu3_k3 =
+              ((k / (T * T)) * du_dq3 -
+                ((2 * zeta) / T) * (nu3 + nu3_k2 / 2) -
+                (1 / (T * T)) * (eta3 + eta3_k2 / 2)) *
+              dt;
 
-          var eta3_k3 = (nu3 + nu3_k2 / 2) * dt;
-          var nu3_k3 =
-            ((k / (T * T)) * du_dq3 -
-              ((2 * zeta) / T) * (nu3 + nu3_k2 / 2) -
-              (1 / (T * T)) * (eta3 + eta3_k2 / 2)) *
-            dt;
+            var eta3_k4 = (nu3 + nu3_k3) * dt;
+            var nu3_k4 =
+              ((k / (T * T)) * du_dq3 -
+                ((2 * zeta) / T) * (nu3 + nu3_k3) -
+                (1 / (T * T)) * (eta3 + eta3_k3)) *
+              dt;
 
-          var eta3_k4 = (nu3 + nu3_k3) * dt;
-          var nu3_k4 =
-            ((k / (T * T)) * du_dq3 -
-              ((2 * zeta) / T) * (nu3 + nu3_k3) -
-              (1 / (T * T)) * (eta3 + eta3_k3)) *
-            dt;
+            eta3 = eta3 + (eta3_k1 + 2 * eta3_k2 + 2 * eta3_k3 + eta3_k4) / 6;
+            nu3 = nu3 + (nu3_k1 + 2 * nu3_k2 + 2 * nu3_k3 + nu3_k4) / 6;
 
-          eta3 = eta3 + (eta3_k1 + 2 * eta3_k2 + 2 * eta3_k3 + eta3_k4) / 6;
-          nu3 = nu3 + (nu3_k1 + 2 * nu3_k2 + 2 * nu3_k3 + nu3_k4) / 6;
-
-          int_xi1 += xi1_delayed * dt;
-          int_xi2 += xi2_delayed * dt;
-          int_xi3 += xi3_delayed * dt;
+            int_xi1 += xi1_delayed * dt;
+            int_xi2 += xi2_delayed * dt;
+            int_xi3 += xi3_delayed * dt;
+          } // end if (computeGrad)
 
           // Градиент: ∂I/∂qj = 2 ∫ (y - y_эт) · ξj dt
-          gradI1 += 2 * diff * xi1_delayed * dt;
-          gradI2 += 2 * diff * xi2_delayed * dt;
-          gradI3 += 2 * diff * xi3_delayed * dt;
+          if (computeGrad) {
+            gradI1 += 2 * diff * xi1_delayed * dt;
+            gradI2 += 2 * diff * xi2_delayed * dt;
+            gradI3 += 2 * diff * xi3_delayed * dt;
+          }
 
           data.push([t_, x, eta1, eta2, eta3, y_ref, y_delayed]);
           gradData.push([
@@ -753,7 +763,7 @@ $ (∂I)/(∂q_j) = 2 ∫_(0)^(L) (y(t) - y_"эт"(t)) · ξ_j(t) d t, quad j = 
               qNext.push(Math.max(0.0, q[i] + hCurrent * S[i]));
             }
 
-            var nextResult = simulate(qNext[0], qNext[1], qNext[2]);
+            var nextResult = simulate(qNext[0], qNext[1], qNext[2], false);
             var nextI = nextResult.I;
 
             if (nextI < IBest) {
@@ -765,7 +775,6 @@ $ (∂I)/(∂q_j) = 2 ∫_(0)^(L) (y(t) - y_"эт"(t)) · ξ_j(t) d t, quad j = 
               stepCount++;
               totalIter++;
 
-              // Градиент = null — это внутренаправленный шаг
               history_q.push({ q1: q[0], q2: q[1], q3: q[2] });
               history_I.push(IBest);
               history_grad.push(null);
@@ -1688,6 +1697,7 @@ $ (∂I)/(∂q_j) = 2 ∫_(0)^(L) (y(t) - y_"эт"(t)) · ξ_j(t) d t, quad j = 
 *Проверка работоспособности алгоритма наискорейшего спуска (критерий с эталонной моделью
 #text(size: 14pt, [$I = ∫_(0)^(L) (y(t) - y_"эт"(t))^2 "dt"$])):
 *
+
 Для подтверждения корректности работы алгоритма оптимизации проведём эксперимент с тремя различными наборами начальных параметров ПИД-регулятора. Независимо от начальных значений, все три набора должны сойтись к одним и тем же оптимальным параметрам, что подтвердит правильность работы метода оптимизации.
 
 #table(
@@ -1711,8 +1721,8 @@ $ (∂I)/(∂q_j) = 2 ∫_(0)^(L) (y(t) - y_"эт"(t)) · ξ_j(t) d t, quad j = 
   // Оптимальные параметры
   [Оптимальные $q_1^*$],
   [19.32],
-  [19.32],
-  [19.32],
+  [19.23],
+  [19.27],
 
   [Оптимальные $q_2^*$],
   [1.54],
@@ -1721,8 +1731,8 @@ $ (∂I)/(∂q_j) = 2 ∫_(0)^(L) (y(t) - y_"эт"(t)) · ξ_j(t) d t, quad j = 
 
   [Оптимальные $q_3^*$],
   [10.58],
-  [10.58],
-  [10.58],
+  [10.48],
+  [10.51],
 
   // Критерий качества
   [Критерий $I^*$],
