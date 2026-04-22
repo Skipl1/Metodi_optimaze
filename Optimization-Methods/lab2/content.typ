@@ -454,10 +454,10 @@ $ (∂I)/(∂q_j) = 2 ∫_(0)^(L) (y(t) - y_"эт"(t)) · ξ_j(t) d t, quad j = 
       google.charts.load("current", { packages: ["corechart"] });
       google.charts.setOnLoadCallback(drawChart);
 
-      // Симуляция: считает I и градиент по методу чувствительности
+      // Симуляция: считаем I и градиент
       function simulate(q1, q2, q3, computeGrad) {
         if (computeGrad === undefined) computeGrad = true;
-        // Параметры объекта: T, k, zeta, tau — запаздывание
+        // Параметры объекта
         var T = 1,
           k = 1,
           zeta = 0.75,
@@ -465,28 +465,28 @@ $ (∂I)/(∂q_j) = 2 ∫_(0)^(L) (y(t) - y_"эт"(t)) · ξ_j(t) d t, quad j = 
           g = 1,
           dt = 0.01,
           L = 50;
-        // Переменные состояния объекта
+        // Состояния объекта
         var z1 = 0,
           z2 = 0;
-        // Ошибка, интеграл, производная, управление
+        // ПИД-часть
         var x,
           x_prev = g,
           intx = 0,
           dx,
           u;
         var I = 0;
-        // Функции чувствительности: eta = ξ, nu = dξ/dt
+        // Чувствительности: eta=ξ, nu=ω
         var eta1 = 0,
           eta2 = 0,
           eta3 = 0;
         var nu1 = 0,
           nu2 = 0,
           nu3 = 0;
-        // Интегралы от функций чувствительности
+        // Интегралы ξ (для I-части ПИД)
         var int_xi1 = 0,
           int_xi2 = 0,
           int_xi3 = 0;
-        // Компоненты градиента
+        // Градиент dI/dq
         var gradI1 = 0,
           gradI2 = 0,
           gradI3 = 0;
@@ -495,12 +495,12 @@ $ (∂I)/(∂q_j) = 2 ∫_(0)^(L) (y(t) - y_"эт"(t)) · ξ_j(t) d t, quad j = 
           gradIData = [];
         var t_ = 0;
 
-        // Эталонная модель: инерционное звено 1-го порядка
+        // Эталонная модель (1-й порядок)
         var T_ref = 0.6,
           k_ref = 1;
         var y_ref_prev = 0;
 
-        // Буфер запаздывания
+        // Запаздывание (буфер)
         var delaySteps = Math.max(1, Math.round(tau / dt));
         var historyY = new Array(delaySteps).fill(0);
         var historyXi1 = new Array(delaySteps).fill(0);
@@ -510,20 +510,20 @@ $ (∂I)/(∂q_j) = 2 ∫_(0)^(L) (y(t) - y_"эт"(t)) · ξ_j(t) d t, quad j = 
         while (t_ <= L) {
           var y_now = z1;
 
-          // Сдвигаем буфер — достаём задержанные значения
+          // Достаём задержанные значения
           var y_delayed = historyY.shift();
           var xi1_delayed = historyXi1.shift();
           var xi2_delayed = historyXi2.shift();
           var xi3_delayed = historyXi3.shift();
 
-          // ПИД-регулятор по задержанному сигналу
+          // ПИД по задержанному y
           x = g - y_delayed;
           intx += x * dt;
           dx = (x - x_prev) / dt;
           x_prev = x;
           u = q1 * x + q2 * intx + q3 * dx;
 
-          // Эталонная модель — РК4
+          // Эталонная модель (РК4)
           var obrat_g = g;
           var k1_ref = dt * (-(y_ref_prev / T_ref) + (k_ref / T_ref) * obrat_g);
           var k2_ref =
@@ -541,19 +541,19 @@ $ (∂I)/(∂q_j) = 2 ∫_(0)^(L) (y(t) - y_"эт"(t)) · ξ_j(t) d t, quad j = 
           // Ошибка относительно эталона
           var diff = y_delayed - y_ref;
 
-          // Интеграл от квадрата ошибки
+          // Критерий
           I += diff * diff * dt;
 
-          // Сдвигаем буфер — добавляем текущие значения
+          // Кладём текущие значения в буфер
           historyY.push(y_now);
           historyXi1.push(eta1);
           historyXi2.push(eta2);
           historyXi3.push(eta3);
 
-          // Производные управления по параметрам q1, q2, q3
-          var dxi1_dt = nu1,
-            dxi2_dt = nu2,
-            dxi3_dt = nu3;
+          // dξ/dt из (eta, nu)
+          var dxi1_dt = nu1 - ((2 * zeta) / T) * eta1,
+            dxi2_dt = nu2 - ((2 * zeta) / T) * eta2,
+            dxi3_dt = nu3 - ((2 * zeta) / T) * eta3;
 
           var du_dq1 = computeGrad
             ? x - q1 * xi1_delayed - q2 * int_xi1 - q3 * dxi1_dt
@@ -565,110 +565,77 @@ $ (∂I)/(∂q_j) = 2 ∫_(0)^(L) (y(t) - y_"эт"(t)) · ξ_j(t) d t, quad j = 
             ? dx - q1 * xi3_delayed - q2 * int_xi3 - q3 * dxi3_dt
             : 0;
 
-          // Уравнения чувствительности
+          // Чувствительности (РК4, как у объекта)
           if (computeGrad) {
-            // РК4 для чувствительности ξ1 (eta1, nu1)
-            var eta1_k1 = nu1 * dt;
-            var nu1_k1 =
-              ((k / (T * T)) * du_dq1 -
-                ((2 * zeta) / T) * nu1 -
-                (1 / (T * T)) * eta1) *
-              dt;
+            // ξ1
+            var k1_x1 = dt * (nu1 - ((2 * zeta) / T) * eta1);
+            var m1_x1 = dt * ((k / (T * T)) * du_dq1 - eta1 / (T * T));
+            var k2_x1 =
+              dt *
+              (nu1 + m1_x1 / 2 - ((2 * zeta) / T) * (eta1 + k1_x1 / 2));
+            var m2_x1 =
+              dt * ((k / (T * T)) * du_dq1 - (1 / (T * T)) * (eta1 + k1_x1 / 2));
+            var k3_x1 =
+              dt *
+              (nu1 + m2_x1 / 2 - ((2 * zeta) / T) * (eta1 + k2_x1 / 2));
+            var m3_x1 =
+              dt * ((k / (T * T)) * du_dq1 - (1 / (T * T)) * (eta1 + k2_x1 / 2));
+            var k4_x1 =
+              dt * (nu1 + m3_x1 - ((2 * zeta) / T) * (eta1 + k3_x1));
+            var m4_x1 =
+              dt * ((k / (T * T)) * du_dq1 - (1 / (T * T)) * (eta1 + k3_x1));
 
-            var eta1_k2 = (nu1 + nu1_k1 / 2) * dt;
-            var nu1_k2 =
-              ((k / (T * T)) * du_dq1 -
-                ((2 * zeta) / T) * (nu1 + nu1_k1 / 2) -
-                (1 / (T * T)) * (eta1 + eta1_k1 / 2)) *
-              dt;
+            eta1 += (1 / 6) * (k1_x1 + 2 * k2_x1 + 2 * k3_x1 + k4_x1);
+            nu1 += (1 / 6) * (m1_x1 + 2 * m2_x1 + 2 * m3_x1 + m4_x1);
 
-            var eta1_k3 = (nu1 + nu1_k2 / 2) * dt;
-            var nu1_k3 =
-              ((k / (T * T)) * du_dq1 -
-                ((2 * zeta) / T) * (nu1 + nu1_k2 / 2) -
-                (1 / (T * T)) * (eta1 + eta1_k2 / 2)) *
-              dt;
+            // ξ2
+            var k1_x2 = dt * (nu2 - ((2 * zeta) / T) * eta2);
+            var m1_x2 = dt * ((k / (T * T)) * du_dq2 - eta2 / (T * T));
+            var k2_x2 =
+              dt *
+              (nu2 + m1_x2 / 2 - ((2 * zeta) / T) * (eta2 + k1_x2 / 2));
+            var m2_x2 =
+              dt * ((k / (T * T)) * du_dq2 - (1 / (T * T)) * (eta2 + k1_x2 / 2));
+            var k3_x2 =
+              dt *
+              (nu2 + m2_x2 / 2 - ((2 * zeta) / T) * (eta2 + k2_x2 / 2));
+            var m3_x2 =
+              dt * ((k / (T * T)) * du_dq2 - (1 / (T * T)) * (eta2 + k2_x2 / 2));
+            var k4_x2 =
+              dt * (nu2 + m3_x2 - ((2 * zeta) / T) * (eta2 + k3_x2));
+            var m4_x2 =
+              dt * ((k / (T * T)) * du_dq2 - (1 / (T * T)) * (eta2 + k3_x2));
 
-            var eta1_k4 = (nu1 + nu1_k3) * dt;
-            var nu1_k4 =
-              ((k / (T * T)) * du_dq1 -
-                ((2 * zeta) / T) * (nu1 + nu1_k3) -
-                (1 / (T * T)) * (eta1 + eta1_k3)) *
-              dt;
+            eta2 += (1 / 6) * (k1_x2 + 2 * k2_x2 + 2 * k3_x2 + k4_x2);
+            nu2 += (1 / 6) * (m1_x2 + 2 * m2_x2 + 2 * m3_x2 + m4_x2);
 
-            eta1 = eta1 + (eta1_k1 + 2 * eta1_k2 + 2 * eta1_k3 + eta1_k4) / 6;
-            nu1 = nu1 + (nu1_k1 + 2 * nu1_k2 + 2 * nu1_k3 + nu1_k4) / 6;
+            // ξ3
+            var k1_x3 = dt * (nu3 - ((2 * zeta) / T) * eta3);
+            var m1_x3 = dt * ((k / (T * T)) * du_dq3 - eta3 / (T * T));
+            var k2_x3 =
+              dt *
+              (nu3 + m1_x3 / 2 - ((2 * zeta) / T) * (eta3 + k1_x3 / 2));
+            var m2_x3 =
+              dt * ((k / (T * T)) * du_dq3 - (1 / (T * T)) * (eta3 + k1_x3 / 2));
+            var k3_x3 =
+              dt *
+              (nu3 + m2_x3 / 2 - ((2 * zeta) / T) * (eta3 + k2_x3 / 2));
+            var m3_x3 =
+              dt * ((k / (T * T)) * du_dq3 - (1 / (T * T)) * (eta3 + k2_x3 / 2));
+            var k4_x3 =
+              dt * (nu3 + m3_x3 - ((2 * zeta) / T) * (eta3 + k3_x3));
+            var m4_x3 =
+              dt * ((k / (T * T)) * du_dq3 - (1 / (T * T)) * (eta3 + k3_x3));
 
-            // РК4 для ξ2 (eta2, nu2)
-            var eta2_k1 = nu2 * dt;
-            var nu2_k1 =
-              ((k / (T * T)) * du_dq2 -
-                ((2 * zeta) / T) * nu2 -
-                (1 / (T * T)) * eta2) *
-              dt;
-
-            var eta2_k2 = (nu2 + nu2_k1 / 2) * dt;
-            var nu2_k2 =
-              ((k / (T * T)) * du_dq2 -
-                ((2 * zeta) / T) * (nu2 + nu2_k1 / 2) -
-                (1 / (T * T)) * (eta2 + eta2_k1 / 2)) *
-              dt;
-
-            var eta2_k3 = (nu2 + nu2_k2 / 2) * dt;
-            var nu2_k3 =
-              ((k / (T * T)) * du_dq2 -
-                ((2 * zeta) / T) * (nu2 + nu2_k2 / 2) -
-                (1 / (T * T)) * (eta2 + eta2_k2 / 2)) *
-              dt;
-
-            var eta2_k4 = (nu2 + nu2_k3) * dt;
-            var nu2_k4 =
-              ((k / (T * T)) * du_dq2 -
-                ((2 * zeta) / T) * (nu2 + nu2_k3) -
-                (1 / (T * T)) * (eta2 + eta2_k3)) *
-              dt;
-
-            eta2 = eta2 + (eta2_k1 + 2 * eta2_k2 + 2 * eta2_k3 + eta2_k4) / 6;
-            nu2 = nu2 + (nu2_k1 + 2 * nu2_k2 + 2 * nu2_k3 + nu2_k4) / 6;
-
-            // РК4 для ξ3 (eta3, nu3)
-            var eta3_k1 = nu3 * dt;
-            var nu3_k1 =
-              ((k / (T * T)) * du_dq3 -
-                ((2 * zeta) / T) * nu3 -
-                (1 / (T * T)) * eta3) *
-              dt;
-
-            var eta3_k2 = (nu3 + nu3_k1 / 2) * dt;
-            var nu3_k2 =
-              ((k / (T * T)) * du_dq3 -
-                ((2 * zeta) / T) * (nu3 + nu3_k1 / 2) -
-                (1 / (T * T)) * (eta3 + eta3_k1 / 2)) *
-              dt;
-
-            var eta3_k3 = (nu3 + nu3_k2 / 2) * dt;
-            var nu3_k3 =
-              ((k / (T * T)) * du_dq3 -
-                ((2 * zeta) / T) * (nu3 + nu3_k2 / 2) -
-                (1 / (T * T)) * (eta3 + eta3_k2 / 2)) *
-              dt;
-
-            var eta3_k4 = (nu3 + nu3_k3) * dt;
-            var nu3_k4 =
-              ((k / (T * T)) * du_dq3 -
-                ((2 * zeta) / T) * (nu3 + nu3_k3) -
-                (1 / (T * T)) * (eta3 + eta3_k3)) *
-              dt;
-
-            eta3 = eta3 + (eta3_k1 + 2 * eta3_k2 + 2 * eta3_k3 + eta3_k4) / 6;
-            nu3 = nu3 + (nu3_k1 + 2 * nu3_k2 + 2 * nu3_k3 + nu3_k4) / 6;
+            eta3 += (1 / 6) * (k1_x3 + 2 * k2_x3 + 2 * k3_x3 + k4_x3);
+            nu3 += (1 / 6) * (m1_x3 + 2 * m2_x3 + 2 * m3_x3 + m4_x3);
 
             int_xi1 += xi1_delayed * dt;
             int_xi2 += xi2_delayed * dt;
             int_xi3 += xi3_delayed * dt;
           } // end if (computeGrad)
 
-          // Градиент: ∂I/∂qj = 2 ∫ (y - y_эт) · ξj dt
+          // Градиент
           if (computeGrad) {
             gradI1 += 2 * diff * xi1_delayed * dt;
             gradI2 += 2 * diff * xi2_delayed * dt;
@@ -684,7 +651,7 @@ $ (∂I)/(∂q_j) = 2 ∫_(0)^(L) (y(t) - y_"эт"(t)) · ξ_j(t) d t, quad j = 
           ]);
           gradIData.push([t_, gradI1, gradI2, gradI3]);
 
-          // РК4 для объекта (2-й порядок)
+          // Объект (РК4)
           var k1 = dt * (z2 - ((2 * zeta) / T) * y_now);
           var m1 = dt * ((k / (T * T)) * u - y_now / (T * T));
           var k2 = dt * (z2 + m1 / 2 - ((2 * zeta) / T) * (y_now + k1 / 2));
@@ -718,14 +685,14 @@ $ (∂I)/(∂q_j) = 2 ∫_(0)^(L) (y(t) - y_"эт"(t)) · ξ_j(t) d t, quad j = 
         var q = qStart.slice();
         var h = hInit;
 
-        // История для графиков
+        // История (для графиков)
         var history_q = [];
         var history_I = [];
         var history_grad = [];
 
         var totalIter = 0;
 
-        // Начальная точка — считаем градиент
+        // Старт
         var currentResult = simulate(q[0], q[1], q[2]);
         var currentI = currentResult.I;
         var currentGrad = currentResult.grad.slice();
@@ -743,10 +710,10 @@ $ (∂I)/(∂q_j) = 2 ∫_(0)^(L) (y(t) - y_"эт"(t)) · ξ_j(t) d t, quad j = 
           var grad = currentResult.grad;
           var norm = gradientNorm(grad);
 
-          // Проверка сходимости: норма градиента < 1e-4
+          // Проверка сходимости
           if (norm < 1e-4) break;
 
-          // Направление — антиградиент, нормированный
+          // Направление (антиградиент)
           var S = [-grad[0] / norm, -grad[1] / norm, -grad[2] / norm];
 
           // Линейный поиск вдоль S
@@ -767,7 +734,7 @@ $ (∂I)/(∂q_j) = 2 ∫_(0)^(L) (y(t) - y_"эт"(t)) · ξ_j(t) d t, quad j = 
             var nextI = nextResult.I;
 
             if (nextI < IBest) {
-              // Успех — двигаемся, увеличиваем шаг
+              // Успех: двигаемся
               qBest = qNext.slice();
               IBest = nextI;
               q = qNext.slice();
@@ -779,7 +746,7 @@ $ (∂I)/(∂q_j) = 2 ∫_(0)^(L) (y(t) - y_"эт"(t)) · ξ_j(t) d t, quad j = 
               history_I.push(IBest);
               history_grad.push(null);
             } else {
-              // Неудача — откат, пересчёт градиента для нового направления
+              // Неудача: откат и новый градиент
               q = qBest.slice();
               currentI = IBest;
 
@@ -803,7 +770,7 @@ $ (∂I)/(∂q_j) = 2 ∫_(0)^(L) (y(t) - y_"эт"(t)) · ξ_j(t) d t, quad j = 
             }
           }
 
-          // Ни одного успеха — уменьшаем шаг
+          // Если совсем не получилось — уменьшаем шаг
           if (stepCount === 0) {
             h *= 0.5;
             if (h < 1e-3) break;
@@ -876,7 +843,7 @@ $ (∂I)/(∂q_j) = 2 ∫_(0)^(L) (y(t) - y_"эт"(t)) · ξ_j(t) d t, quad j = 
         var simBefore = simulate(qInit[0], qInit[1], qInit[2]);
         var simAfter = simulate(optResult.q[0], optResult.q[1], optResult.q[2]);
 
-        // Симуляции для 3 наборов: ДО и ПОСЛЕ оптимизации
+        // Симуляции: ДО и ПОСЛЕ оптимизации
         var simSet1_before = simulate(
           qInit_sets[0][0],
           qInit_sets[0][1],
@@ -909,7 +876,7 @@ $ (∂I)/(∂q_j) = 2 ∫_(0)^(L) (y(t) - y_"эт"(t)) · ξ_j(t) d t, quad j = 
           optResult3.q[2],
         );
 
-        // График 1: Переходные процессы — 3 набора ДО
+        // График: переходные процессы (ДО)
         var transBeforeData = [
           [
             "t",
@@ -941,7 +908,7 @@ $ (∂I)/(∂q_j) = 2 ∫_(0)^(L) (y(t) - y_"эт"(t)) · ξ_j(t) d t, quad j = 
           title: "Переходные процессы: 3 набора (ДО оптимизации)",
         });
 
-        // График 1a: Переходный процесс — оптимальные q* + эталонная модель на одном графике
+        // График: оптимальные q* + эталон
         var transAfterData = [
           [
             "t",
@@ -977,7 +944,7 @@ $ (∂I)/(∂q_j) = 2 ∫_(0)^(L) (y(t) - y_"эт"(t)) · ξ_j(t) d t, quad j = 
           title: "Переходный процесс: оптимальные q* + эталонная модель",
         });
 
-        // График 2: Функции чувствительности — оптимальные q*
+        // График: чувствительности (оптимальные q*)
         var sensDataAll = [["t", "ξ1(t)", "ξ2(t)", "ξ3(t)"]];
         for (var i = 0; i < simSet1_after.data.length; i++) {
           sensDataAll.push([
@@ -1001,9 +968,8 @@ $ (∂I)/(∂q_j) = 2 ∫_(0)^(L) (y(t) - y_"эт"(t)) · ξ_j(t) d t, quad j = 
           title: "Функции чувствительности (оптимальные q*)",
         });
 
-        // Графики функций чувствительности — каждый набор ДО оптимизации
-
-        // 2a: Набор 1 (неоптимальные)
+        // Чувствительности: наборы ДО оптимизации
+        // Набор 1
         var sensData1 = [["t", "ξ1(t)", "ξ2(t)", "ξ3(t)"]];
         for (var i = 0; i < simSet1_before.data.length; i++) {
           sensData1.push([
@@ -1027,7 +993,7 @@ $ (∂I)/(∂q_j) = 2 ∫_(0)^(L) (y(t) - y_"эт"(t)) · ξ_j(t) d t, quad j = 
           title: "Функции чувствительности (Набор 1: q=[21.0, 3.0, 2.0])",
         });
 
-        // 2b: Набор 2 (неоптимальные)
+        // Набор 2
         var sensData2 = [["t", "ξ1(t)", "ξ2(t)", "ξ3(t)"]];
         for (var i = 0; i < simSet2_before.data.length; i++) {
           sensData2.push([
@@ -1051,7 +1017,7 @@ $ (∂I)/(∂q_j) = 2 ∫_(0)^(L) (y(t) - y_"эт"(t)) · ξ_j(t) d t, quad j = 
           title: "Функции чувствительности (Набор 2: q=[0.7, 0.1, 8.0])",
         });
 
-        // 2c: Набор 3 (неоптимальные)
+        // Набор 3
         var sensData3 = [["t", "ξ1(t)", "ξ2(t)", "ξ3(t)"]];
         for (var i = 0; i < simSet3_before.data.length; i++) {
           sensData3.push([
@@ -1075,8 +1041,7 @@ $ (∂I)/(∂q_j) = 2 ∫_(0)^(L) (y(t) - y_"эт"(t)) · ξ_j(t) d t, quad j = 
           title: "Функции чувствительности (Набор 3: q=[1.0, 0.0, 0.0])",
         });
 
-        // Вспомогательные функции для обработки истории оптимизации
-        // q и I: берём только точки смены направления (grad !== null), дополняем до totalIter
+        // Вспомогательные функции для истории
         function getIterHistoryPadded(optResult, field) {
           var result = [];
           for (var i = 0; i < optResult.history_grad.length; i++) {
@@ -1084,7 +1049,7 @@ $ (∂I)/(∂q_j) = 2 ∫_(0)^(L) (y(t) - y_"эт"(t)) · ξ_j(t) d t, quad j = 
               result.push(optResult.history_q[i][field]);
             }
           }
-          // Дополняем до totalIter последним значением
+          // Дополняем последним значением
           while (result.length <= optResult.totalIter) {
             result.push(result[result.length - 1]);
           }
@@ -1104,7 +1069,7 @@ $ (∂I)/(∂q_j) = 2 ∫_(0)^(L) (y(t) - y_"эт"(t)) · ξ_j(t) d t, quad j = 
           return result;
         }
 
-        // Градиент: все шаги, null заполняем последним значением
+        // Градиент по итерациям
         function getHistoryGradAll(optResult, comp) {
           var result = [];
           var lastValid = null;
@@ -1114,7 +1079,7 @@ $ (∂I)/(∂q_j) = 2 ∫_(0)^(L) (y(t) - y_"эт"(t)) · ξ_j(t) d t, quad j = 
             }
             result.push(lastValid !== null ? lastValid : 0);
           }
-          // Дополняем до totalIter
+          // Дополняем
           while (result.length <= optResult.totalIter) {
             result.push(result[result.length - 1]);
           }
@@ -1127,7 +1092,7 @@ $ (∂I)/(∂q_j) = 2 ∫_(0)^(L) (y(t) - y_"эт"(t)) · ξ_j(t) d t, quad j = 
           optResult3.totalIter,
         );
 
-        // График 3: Сходимость I — точки смены направления
+        // График: сходимость I
         var I_1 = getIterHistoryIPadded(optResult1);
         var I_2 = getIterHistoryIPadded(optResult2);
         var I_3 = getIterHistoryIPadded(optResult3);
@@ -1154,7 +1119,7 @@ $ (∂I)/(∂q_j) = 2 ∫_(0)^(L) (y(t) - y_"эт"(t)) · ξ_j(t) d t, quad j = 
           title: "Сходимость I (I* = " + optResult1.I.toFixed(4) + ")",
         });
 
-        // График 4: Сходимость q1
+        // График: сходимость q1
         var q1_1 = getIterHistoryPadded(optResult1, "q1");
         var q1_2 = getIterHistoryPadded(optResult2, "q1");
         var q1_3 = getIterHistoryPadded(optResult3, "q1");
@@ -1181,7 +1146,7 @@ $ (∂I)/(∂q_j) = 2 ∫_(0)^(L) (y(t) - y_"эт"(t)) · ξ_j(t) d t, quad j = 
           title: "Сходимость q1 → " + optResult1.q[0].toFixed(2),
         });
 
-        // График 5: Сходимость q2
+        // График: сходимость q2
         var q2_1 = getIterHistoryPadded(optResult1, "q2");
         var q2_2 = getIterHistoryPadded(optResult2, "q2");
         var q2_3 = getIterHistoryPadded(optResult3, "q2");
@@ -1208,7 +1173,7 @@ $ (∂I)/(∂q_j) = 2 ∫_(0)^(L) (y(t) - y_"эт"(t)) · ξ_j(t) d t, quad j = 
           title: "Сходимость q2 → " + optResult1.q[1].toFixed(2),
         });
 
-        // График 6: Сходимость q3
+        // График: сходимость q3
         var q3_1 = getIterHistoryPadded(optResult1, "q3");
         var q3_2 = getIterHistoryPadded(optResult2, "q3");
         var q3_3 = getIterHistoryPadded(optResult3, "q3");
@@ -1235,23 +1200,20 @@ $ (∂I)/(∂q_j) = 2 ∫_(0)^(L) (y(t) - y_"эт"(t)) · ξ_j(t) d t, quad j = 
           title: "Сходимость q3 → " + optResult1.q[2].toFixed(2),
         });
 
-        // Настройки масштаба для графиков градиента
-        // Набор 1
+        // Масштаб для графиков градиента
         var grad1_xMax = 40;
         var grad1_yMin = -0.001;
         var grad1_yMax = 0.001;
 
-        // Набор 2
         var grad2_xMax = 75;
         var grad2_yMin = -0.001;
         var grad2_yMax = 0.001;
 
-        // Набор 3
         var grad3_xMax = 160;
         var grad3_yMin = -0.003;
         var grad3_yMax = 0.003;
 
-        // Графики 7-9: Сходимость градиента для каждого набора
+        // Градиент (по наборам)
         var grad1_g1 = getHistoryGradAll(optResult1, "g1");
         var grad1_g2 = getHistoryGradAll(optResult1, "g2");
         var grad1_g3 = getHistoryGradAll(optResult1, "g3");
