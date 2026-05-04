@@ -1,0 +1,90 @@
+def combined_method_bukin(
+    x0,
+    *,
+    r0=10.0,
+    r_factor=0.25,
+    r_min=1e-4,
+    theta0=1e-5,
+    eps_grad=1e-3,
+    line_search="armijo",
+    verbose=False,
+    verbose_subtitle="",
+):
+    r = float(r0)
+    x = np.array(x0, dtype=float)
+
+    if verbose:
+        title = "Решение задачи на ЭВМ (Букин N.6 + штраф)"
+        if verbose_subtitle:
+            title += f" — {verbose_subtitle}"
+        print(title)
+        print()
+        xi, xj = float(x[0]), float(x[1])
+        print(f"Начальная точка: ({xi:g}, {xj:g})")
+        print(f"Букин f = {bukin_f(xi, xj):g}")
+        print(f"h2 = x1 + 2x2 - 8 = {h2_bk(xi, xj):g}")
+        print(f"g1 = 15 - 2x1 - 3x2 = {g1_bk(xi, xj):g}")
+        print(f"P(X, r) = {P_bk(xi, xj, r)}")
+        print()
+
+    all_hist = {
+        "x": [],
+        "f": [],
+        "P": [],
+        "r": [],
+        "outer": [],
+        "steps_total": 0,
+    }
+
+    outer_k = 0
+    while r >= r_min:
+        if verbose:
+            print(f"r = {r}")
+        x, hist_inner = gradient_descent_bk_for_fixed_r(
+            x,
+            r,
+            grad_tol=eps_grad,
+            line_search=line_search,
+            verbose=verbose,
+        )
+
+        inner_steps = len(hist_inner["grad_norm"])
+        all_hist["steps_total"] += inner_steps
+
+        j0 = 0 if outer_k == 0 else 1
+        for j in range(j0, len(hist_inner["x"])):
+            all_hist["x"].append(hist_inner["x"][j])
+            all_hist["f"].append(hist_inner["f"][j])
+            all_hist["P"].append(hist_inner["P"][j])
+            all_hist["r"].append(r)
+            all_hist["outer"].append(outer_k)
+
+        if verbose:
+            xf, yf = float(x[0]), float(x[1])
+            print(f"  X = ({xf:.6f}, {yf:.6f})")
+            print(f"  Букин f = {bukin_f(xf, yf):.6f}")
+            print(f"  h2 = {h2_bk(xf, yf):.2e}")
+            print(f"  g1 = {g1_bk(xf, yf):.2e}")
+            print(f"P(X, r) = {P_bk(xf, yf, r)}")
+            print()
+
+        if abs(all_hist["P"][-1] - all_hist["f"][-1]) <= theta0 and r < 1e-2:
+            break
+
+        r *= r_factor
+        outer_k += 1
+
+    if verbose:
+        print("Итог")
+        xf, yf = float(x[0]), float(x[1])
+        print(f"X* = ({xf:.6f}, {yf:.6f})")
+        print(f"Букин f* = {bukin_f(xf, yf):.6f}")
+        print(f"Проверка x1 + 2x2 - 8 = {h2_bk(xf, yf):.2e}")
+        print(f"Проверка 15 - 2x1 - 3x2 = {g1_bk(xf, yf):.2e}")
+        print("Справка: безусловный минимум Букина (-10, 1), f = 0.")
+        print(f"{int(all_hist['steps_total'])} кол-во итераций (внутренний градиентный спуск)")
+        print()
+
+    return x, all_hist
+
+
