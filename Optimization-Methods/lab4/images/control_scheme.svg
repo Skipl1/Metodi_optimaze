@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="260" viewBox="0 0 900 260">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#111"/>
+    </marker>
+  </defs>
+
+  <style>
+    .line { stroke: #111; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+    .plain { stroke: #111; stroke-width: 2; fill: none; }
+    .box { stroke: #111; stroke-width: 2; fill: #fff; }
+    .text { font-family: "Times New Roman", serif; font-size: 28px; fill: #111; }
+    .math { font-family: "Times New Roman", serif; font-style: italic; font-size: 26px; fill: #111; }
+  </style>
+
+  <!-- Input, summing junction, and forward path -->
+  <text class="math" x="35" y="83">θ<tspan baseline-shift="sub" font-size="16">зад</tspan></text>
+  <path class="line" d="M 20 95 H 95"/>
+
+  <circle cx="115" cy="95" r="17" stroke="#111" stroke-width="2" fill="#fff"/>
+  <path class="plain" d="M 103 83 L 127 107"/>
+  <path class="plain" d="M 127 83 L 103 107"/>
+
+  <text class="math" x="143" y="73">ν</text>
+  <path class="line" d="M 132 95 H 195"/>
+
+  <rect class="box" x="195" y="55" width="140" height="80"/>
+  <text class="text" x="213" y="104">Регулятор</text>
+
+  <text class="math" x="365" y="73">kμ</text>
+  <path class="line" d="M 335 95 H 430"/>
+
+  <rect class="box" x="430" y="55" width="185" height="80"/>
+  <text class="text" x="458" y="88">Реактивные</text>
+  <text class="text" x="475" y="121">двигатели</text>
+
+  <text class="math" x="645" y="73">M</text>
+  <path class="line" d="M 615 95 H 695"/>
+
+  <rect class="box" x="695" y="55" width="145" height="80"/>
+  <text class="text" x="721" y="104">Спутник</text>
+
+  <text class="math" x="872" y="83">θ</text>
+  <path class="line" d="M 840 95 H 885"/>
+
+  <!-- Feedback path -->
+  <path class="plain" d="M 860 95 V 220 H 115"/>
+  <path class="line" d="M 115 220 V 113"/>
+</svg>
